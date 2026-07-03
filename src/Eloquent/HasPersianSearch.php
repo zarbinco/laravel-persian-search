@@ -10,6 +10,8 @@ use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\PersianSearchManager;
+use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 
 /**
  * @mixin Model
@@ -45,6 +47,13 @@ trait HasPersianSearch
                 app(SearchIndexManager::class)->index($model);
             }
         });
+    }
+
+    public static function persianSearch(string $query): SearchQueryBuilder
+    {
+        $manager = app(PersianSearchManager::class);
+
+        return $manager->search($query)->for(static::class);
     }
 
     /**

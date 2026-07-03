@@ -18,12 +18,20 @@ return [
     'database' => [
         'min_token_length' => 2,
         'max_tokens' => 20,
+        'max_candidates' => 500,
     ],
 
     'ranking' => [
         'exact_phrase' => 100,
         'all_tokens' => 70,
         'any_token' => 20,
+        'title_boost' => 2.0,
+        'field_weight_multiplier' => 1.0,
+    ],
+
+    'search' => [
+        'default_limit' => 20,
+        'max_limit' => 100,
     ],
 
     'synonyms' => [

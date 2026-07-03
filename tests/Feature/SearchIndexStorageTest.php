@@ -103,6 +103,8 @@ final class SearchIndexStorageTest extends TestCase
         $this->assertSame(TestIndexedProduct::class, $record->searchable_type);
         $this->assertSame((string) $model->getKey(), $record->searchable_id);
         $this->assertSame('', $record->locale);
+        $this->assertSame($document->title, $record->title);
+        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $record->title);
         $this->assertSame($document->content, $record->content);
         $this->assertSame($document->tokens, $record->tokens);
         $storedField = $this->firstStoredField($record);
@@ -319,7 +321,7 @@ final class SearchIndexStorageTest extends TestCase
         $this->assertDatabaseCount('persian_search_documents', 0);
     }
 
-    public function test_regression_no_search_execution_api_or_database_driver_is_added(): void
+    public function test_regression_no_persian_search_query_scope_is_added(): void
     {
         $sourceFiles = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator(__DIR__.'/../../src'),
@@ -333,8 +335,6 @@ final class SearchIndexStorageTest extends TestCase
             $contents = file_get_contents($file->getPathname());
 
             $this->assertIsString($contents);
-            $this->assertStringNotContainsString('class DatabaseSearchDriver', $contents);
-            $this->assertStringNotContainsString('function persianSearch(', $contents);
             $this->assertStringNotContainsString('scopePersianSearch', $contents);
         }
     }

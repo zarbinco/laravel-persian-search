@@ -90,6 +90,23 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertStringContainsString('SearchDocumentBuilder', $indexManager);
         $this->assertStringNotContainsString('Persian::search', $indexManager);
         $this->assertStringNotContainsString('preg_replace', $indexManager);
+
+        foreach ([
+            __DIR__.'/../../src/Search/SearchQueryBuilder.php',
+            __DIR__.'/../../src/Drivers/DatabaseSearchDriver.php',
+            __DIR__.'/../../src/Ranking/BasicRanker.php',
+        ] as $path) {
+            $contents = file_get_contents($path);
+
+            $this->assertIsString($contents);
+            $this->assertStringNotContainsString('Persian::search', $contents);
+            $this->assertStringNotContainsString('preg_replace', $contents);
+        }
+
+        $queryBuilder = file_get_contents(__DIR__.'/../../src/Search/SearchQueryBuilder.php');
+
+        $this->assertIsString($queryBuilder);
+        $this->assertStringContainsString('SearchNormalizer', $queryBuilder);
     }
 
     /**

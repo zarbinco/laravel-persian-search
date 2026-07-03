@@ -3,13 +3,17 @@
 namespace Zarbinco\PersianSearch;
 
 use Illuminate\Support\ServiceProvider;
+use InvalidArgumentException;
 use Zarbinco\PersianSearch\Console\FlushCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
+use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
+use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Ranking\BasicRanker;
 
 final class PersianSearchServiceProvider extends ServiceProvider
 {
@@ -18,6 +22,23 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/persian-search.php', 'persian-search');
 
         $this->app->singleton(SearchNormalizer::class, CoreSearchNormalizer::class);
+
+        $this->app->singleton(BasicRanker::class, BasicRanker::class);
+
+        $this->app->singleton(DatabaseSearchDriver::class, function ($app): DatabaseSearchDriver {
+            return new DatabaseSearchDriver(
+                $app->make(BasicRanker::class),
+            );
+        });
+
+        $this->app->singleton(SearchDriver::class, function ($app): SearchDriver {
+            $driver = (string) config('persian-search.driver', 'database');
+
+            return match ($driver) {
+                'database' => $app->make(DatabaseSearchDriver::class),
+                default => throw new InvalidArgumentException("Unsupported Persian search driver [{$driver}]."),
+            };
+        });
 
         $this->app->singleton(SearchDocumentBuilder::class, function ($app): SearchDocumentBuilder {
             return new SearchDocumentBuilder(
@@ -36,6 +57,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchNormalizer::class),
                 $app->make(SearchDocumentBuilder::class),
                 $app->make(SearchIndexManager::class),
+                $app->make(SearchDriver::class),
             );
         });
 

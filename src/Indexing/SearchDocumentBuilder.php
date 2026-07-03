@@ -60,12 +60,14 @@ final readonly class SearchDocumentBuilder
             static fn (SearchField $field): string => $field->value,
             $fields,
         ));
+        $rawTitle = $model->persianSearchTitle();
+        $normalizedTitle = $this->normalizer->normalize($rawTitle);
 
         return new SearchDocument(
             searchableType: $model::class,
             searchableId: $this->modelKey($model),
             locale: $model->persianSearchLocale(),
-            title: $model->persianSearchTitle(),
+            title: $normalizedTitle,
             content: $content,
             tokens: $this->normalizer->tokens($content),
             fields: $fields,

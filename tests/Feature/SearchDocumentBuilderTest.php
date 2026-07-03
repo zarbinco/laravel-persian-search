@@ -86,6 +86,24 @@ final class SearchDocumentBuilderTest extends TestCase
         $this->assertSame(Persian::search($expectedContent)->tokens(), $document->tokens);
     }
 
+    public function test_document_title_is_search_normalized(): void
+    {
+        $model = new ConfigurableSearchableModel([
+            'id' => 11,
+            'title' => 'كیكِ شکلاتي',
+            'description' => 'دسر تازه',
+        ]);
+        $model->searchableFields = [
+            'description' => 1,
+        ];
+
+        $this->assertSame('كیكِ شکلاتي', $model->persianSearchTitle());
+
+        $document = app(SearchDocumentBuilder::class)->build($model);
+
+        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $document->title);
+    }
+
     public function test_numeric_field_declarations_use_default_weight(): void
     {
         $model = new ConfigurableSearchableModel([

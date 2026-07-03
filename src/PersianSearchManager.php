@@ -5,11 +5,13 @@ namespace Zarbinco\PersianSearch;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
+use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 
 final class PersianSearchManager
 {
@@ -17,6 +19,7 @@ final class PersianSearchManager
         private readonly SearchNormalizer $normalizer,
         private readonly SearchDocumentBuilder $builder,
         private readonly SearchIndexManager $indexManager,
+        private readonly SearchDriver $driver,
     ) {}
 
     public function normalizer(): SearchNormalizer
@@ -32,6 +35,11 @@ final class PersianSearchManager
     public function indexManager(): SearchIndexManager
     {
         return $this->indexManager;
+    }
+
+    public function driver(): SearchDriver
+    {
+        return $this->driver;
     }
 
     public function normalize(string $value): string
@@ -73,5 +81,10 @@ final class PersianSearchManager
     public function flushIndex(?string $searchableType = null): int
     {
         return $this->indexManager->flush($searchableType);
+    }
+
+    public function search(string $query): SearchQueryBuilder
+    {
+        return new SearchQueryBuilder($query, $this->normalizer, $this->driver);
     }
 }
