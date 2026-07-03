@@ -18,4 +18,14 @@ abstract class TestCase extends Orchestra
             PersianSearchServiceProvider::class,
         ];
     }
+
+    protected function getEnvironmentSetUp($app): void
+    {
+        $app['config']->set('database.default', 'testing');
+        $app['config']->set('database.connections.testing', [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+        ]);
+    }
 }

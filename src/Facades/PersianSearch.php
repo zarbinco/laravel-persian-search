@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
+use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
 
 /**
@@ -13,6 +15,10 @@ use Zarbinco\PersianSearch\PersianSearchManager;
  * @method static array<int, string> tokens(string $value)
  * @method static SearchDocument documentFor(Model $model)
  * @method static SearchDocumentBuilder builder()
+ * @method static SearchDocumentRecord index(Model $model)
+ * @method static int deleteFromIndex(Model $model)
+ * @method static int flushIndex(?string $searchableType = null)
+ * @method static SearchIndexManager indexManager()
  */
 final class PersianSearch extends Facade
 {

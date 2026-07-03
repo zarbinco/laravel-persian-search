@@ -11,6 +11,8 @@ return [
         'table' => 'persian_search_documents',
         'queue' => false,
         'sync_on_save' => true,
+        'delete_on_model_delete' => true,
+        'include_soft_deleted' => false,
     ],
 
     'database' => [

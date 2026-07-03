@@ -3,16 +3,50 @@
 namespace Zarbinco\PersianSearch\Eloquent;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use LogicException;
 use Throwable;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
+use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 
 /**
  * @mixin Model
  */
 trait HasPersianSearch
 {
+    protected static function bootHasPersianSearch(): void
+    {
+        static::saved(static function (Model $model): void {
+            if ((bool) config('persian-search.index.sync_on_save', true)) {
+                app(SearchIndexManager::class)->index($model);
+            }
+        });
+
+        static::deleted(static function (Model $model): void {
+            if (! (bool) config('persian-search.index.delete_on_model_delete', true)) {
+                return;
+            }
+
+            if (self::persianSearchUsesSoftDeletes($model) && ! self::persianSearchIsForceDeleting($model)) {
+                if (! (bool) config('persian-search.index.include_soft_deleted', false)) {
+                    app(SearchIndexManager::class)->delete($model);
+                }
+
+                return;
+            }
+
+            app(SearchIndexManager::class)->delete($model);
+        });
+
+        static::registerModelEvent('restored', static function (Model $model): void {
+            if ((bool) config('persian-search.index.sync_on_save', true)) {
+                app(SearchIndexManager::class)->index($model);
+            }
+        });
+    }
+
     /**
      * @return array<int|string, string|int|float>
      */
@@ -67,6 +101,16 @@ trait HasPersianSearch
         return app(SearchDocumentBuilder::class)->build($model);
     }
 
+    public function savePersianSearchDocument(): SearchDocumentRecord
+    {
+        return app(SearchIndexManager::class)->index($this->persianSearchModel());
+    }
+
+    public function deletePersianSearchDocument(): int
+    {
+        return app(SearchIndexManager::class)->delete($this->persianSearchModel());
+    }
+
     private function persianSearchModel(): Model
     {
         if (! $this instanceof Model) {
@@ -74,5 +118,15 @@ trait HasPersianSearch
         }
 
         return $this;
+    }
+
+    private static function persianSearchUsesSoftDeletes(Model $model): bool
+    {
+        return in_array(SoftDeletes::class, class_uses_recursive($model), true);
+    }
+
+    private static function persianSearchIsForceDeleting(Model $model): bool
+    {
+        return method_exists($model, 'isForceDeleting') && $model->isForceDeleting();
     }
 }
