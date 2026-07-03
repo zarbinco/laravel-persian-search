@@ -1,0 +1,106 @@
+<?php
+
+namespace Zarbinco\PersianSearch\Tests\Feature;
+
+use Illuminate\Foundation\Application;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use SplFileInfo;
+use Zarbinco\PersianCore\Facades\Persian;
+use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
+use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
+use Zarbinco\PersianSearch\Facades\PersianSearch;
+use Zarbinco\PersianSearch\PersianSearchManager;
+use Zarbinco\PersianSearch\Tests\TestCase;
+
+final class PersianSearchFoundationTest extends TestCase
+{
+    public function test_config_is_loaded(): void
+    {
+        $this->assertSame('database', config('persian-search.driver'));
+        $this->assertSame('persian-core', config('persian-search.normalizer.driver'));
+    }
+
+    public function test_search_normalizer_contract_resolves_to_core_implementation(): void
+    {
+        $normalizer = $this->application()->make(SearchNormalizer::class);
+
+        $this->assertInstanceOf(CoreSearchNormalizer::class, $normalizer);
+    }
+
+    public function test_manager_and_facade_delegate_normalization_to_persian_core(): void
+    {
+        $value = 'كیكِ شکلاتي';
+        $expected = Persian::search($value)->normalize();
+
+        $manager = $this->application()->make(PersianSearchManager::class);
+
+        $this->assertSame($expected, $manager->normalize($value));
+        $this->assertSame($expected, PersianSearch::normalize($value));
+    }
+
+    public function test_manager_and_facade_delegate_tokenization_to_persian_core(): void
+    {
+        $value = 'آب‌میوه سن‌ایچ';
+        $expected = Persian::search($value)->tokens();
+
+        $manager = $this->application()->make(PersianSearchManager::class);
+
+        $this->assertSame($expected, $manager->tokens($value));
+        $this->assertSame($expected, PersianSearch::tokens($value));
+    }
+
+    public function test_no_duplicated_normalizer_classes_exist_and_core_normalizer_delegates(): void
+    {
+        $forbiddenNames = [
+            'PersianNormalizer',
+            'CharacterMap',
+            'DigitNormalizer',
+            'ZwnjNormalizer',
+        ];
+
+        foreach ($this->sourceFiles() as $file) {
+            $contents = file_get_contents($file->getPathname());
+
+            $this->assertIsString($contents);
+
+            foreach ($forbiddenNames as $name) {
+                $this->assertStringNotContainsString($name, $file->getBasename('.php'));
+                $this->assertStringNotContainsString("class {$name}", $contents);
+            }
+        }
+
+        $coreNormalizer = file_get_contents(__DIR__.'/../../src/Core/CoreSearchNormalizer.php');
+
+        $this->assertIsString($coreNormalizer);
+        $this->assertStringContainsString('Persian::search($value)->normalize()', $coreNormalizer);
+        $this->assertStringContainsString('Persian::search($value)->tokens()', $coreNormalizer);
+        $this->assertStringNotContainsString('array_values(Persian::search($value)->tokens())', $coreNormalizer);
+    }
+
+    /**
+     * @return list<SplFileInfo>
+     */
+    private function sourceFiles(): array
+    {
+        $files = [];
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(__DIR__.'/../../src'),
+        );
+
+        foreach ($iterator as $file) {
+            if ($file instanceof SplFileInfo && $file->isFile() && $file->getExtension() === 'php') {
+                $files[] = $file;
+            }
+        }
+
+        return $files;
+    }
+
+    private function application(): Application
+    {
+        $this->assertInstanceOf(Application::class, $this->app);
+
+        return $this->app;
+    }
+}
