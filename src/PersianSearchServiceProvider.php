@@ -7,12 +7,16 @@ use InvalidArgumentException;
 use Zarbinco\PersianSearch\Console\FlushCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
+use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Query\DefaultQueryExpander;
+use Zarbinco\PersianSearch\Query\KeyboardLayoutCorrector;
+use Zarbinco\PersianSearch\Query\SynonymExpander;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
 
 final class PersianSearchServiceProvider extends ServiceProvider
@@ -24,6 +28,24 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(SearchNormalizer::class, CoreSearchNormalizer::class);
 
         $this->app->singleton(BasicRanker::class, BasicRanker::class);
+
+        $this->app->singleton(KeyboardLayoutCorrector::class, KeyboardLayoutCorrector::class);
+
+        $this->app->singleton(SynonymExpander::class, function ($app): SynonymExpander {
+            return new SynonymExpander(
+                $app->make(SearchNormalizer::class),
+            );
+        });
+
+        $this->app->singleton(DefaultQueryExpander::class, function ($app): DefaultQueryExpander {
+            return new DefaultQueryExpander(
+                $app->make(SearchNormalizer::class),
+                $app->make(KeyboardLayoutCorrector::class),
+                $app->make(SynonymExpander::class),
+            );
+        });
+
+        $this->app->singleton(QueryExpander::class, DefaultQueryExpander::class);
 
         $this->app->singleton(DatabaseSearchDriver::class, function ($app): DatabaseSearchDriver {
             return new DatabaseSearchDriver(
@@ -58,6 +80,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchDocumentBuilder::class),
                 $app->make(SearchIndexManager::class),
                 $app->make(SearchDriver::class),
+                $app->make(QueryExpander::class),
             );
         });
 

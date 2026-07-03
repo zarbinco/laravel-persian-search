@@ -3,19 +3,59 @@
 namespace Zarbinco\PersianSearch\Ranking;
 
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Search\QueryCandidate;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 
 final class BasicRanker
 {
     /**
-     * @return array{score: float, matched_tokens: array<int, string>}
+     * @return array{
+     *     base_score: float,
+     *     score: float,
+     *     matched_tokens: array<int, string>,
+     *     candidate_source: string,
+     *     matched_query: string
+     * }
      */
     public function score(SearchDocumentRecord $record, SearchQuery $query): array
     {
         if ($query->isEmpty()) {
             return [
+                'base_score' => 0.0,
                 'score' => 0.0,
                 'matched_tokens' => [],
+                'candidate_source' => 'original',
+                'matched_query' => $query->normalized,
+            ];
+        }
+
+        return $this->scoreCandidate($record, new QueryCandidate(
+            source: 'original',
+            original: $query->original,
+            normalized: $query->normalized,
+            tokens: $query->tokens,
+            boost: 1.0,
+        ));
+    }
+
+    /**
+     * @return array{
+     *     base_score: float,
+     *     score: float,
+     *     matched_tokens: array<int, string>,
+     *     candidate_source: string,
+     *     matched_query: string
+     * }
+     */
+    public function scoreCandidate(SearchDocumentRecord $record, QueryCandidate $candidate): array
+    {
+        if ($candidate->isEmpty()) {
+            return [
+                'base_score' => 0.0,
+                'score' => 0.0,
+                'matched_tokens' => [],
+                'candidate_source' => $candidate->source,
+                'matched_query' => $candidate->normalized,
             ];
         }
 
@@ -31,19 +71,19 @@ final class BasicRanker
         $titleBoost = (float) config('persian-search.ranking.title_boost', 2.0);
         $fieldWeightMultiplier = (float) config('persian-search.ranking.field_weight_multiplier', 1.0);
 
-        if ($query->normalized !== '') {
-            if ($this->contains($title, $query->normalized)) {
+        if ($candidate->normalized !== '') {
+            if ($this->contains($title, $candidate->normalized)) {
                 $score += $exactPhrase * $titleBoost;
             }
 
-            if ($this->contains($content, $query->normalized)) {
+            if ($this->contains($content, $candidate->normalized)) {
                 $score += $exactPhrase;
             }
         }
 
         $presentTokens = [];
 
-        foreach ($query->tokens as $token) {
+        foreach ($candidate->tokens as $token) {
             if ($token === '') {
                 continue;
             }
@@ -72,7 +112,7 @@ final class BasicRanker
         }
 
         $queryTokens = array_values(array_filter(
-            $query->tokens,
+            $candidate->tokens,
             static fn (string $token): bool => $token !== '',
         ));
 
@@ -81,8 +121,11 @@ final class BasicRanker
         }
 
         return [
-            'score' => $score,
+            'base_score' => $score,
+            'score' => $score * $candidate->boost,
             'matched_tokens' => array_values($matched),
+            'candidate_source' => $candidate->source,
+            'matched_query' => $candidate->normalized,
         ];
     }
 

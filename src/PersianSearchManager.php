@@ -5,12 +5,15 @@ namespace Zarbinco\PersianSearch;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
+use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Search\QueryCandidate;
+use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 
 final class PersianSearchManager
@@ -20,6 +23,7 @@ final class PersianSearchManager
         private readonly SearchDocumentBuilder $builder,
         private readonly SearchIndexManager $indexManager,
         private readonly SearchDriver $driver,
+        private readonly QueryExpander $expander,
     ) {}
 
     public function normalizer(): SearchNormalizer
@@ -40,6 +44,11 @@ final class PersianSearchManager
     public function driver(): SearchDriver
     {
         return $this->driver;
+    }
+
+    public function queryExpander(): QueryExpander
+    {
+        return $this->expander;
     }
 
     public function normalize(string $value): string
@@ -85,6 +94,25 @@ final class PersianSearchManager
 
     public function search(string $query): SearchQueryBuilder
     {
-        return new SearchQueryBuilder($query, $this->normalizer, $this->driver);
+        return new SearchQueryBuilder($query, $this->normalizer, $this->driver, $this->expander);
+    }
+
+    /**
+     * @return list<QueryCandidate>
+     */
+    public function expand(string $query): array
+    {
+        $searchQuery = new SearchQuery(
+            original: $query,
+            normalized: $this->normalizer->normalize($query),
+            tokens: $this->normalizer->tokens($query),
+            searchableTypes: [],
+            locale: null,
+            limit: (int) config('persian-search.search.default_limit', 20),
+            offset: 0,
+            includeScores: false,
+        );
+
+        return $this->expander->expand($searchQuery);
     }
 }

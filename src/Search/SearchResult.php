@@ -15,6 +15,8 @@ final readonly class SearchResult
         public SearchDocumentRecord $record,
         public int|float $score,
         public array $matchedTokens,
+        public ?string $candidateSource = null,
+        public ?string $matchedQuery = null,
     ) {}
 
     /**
@@ -22,7 +24,9 @@ final readonly class SearchResult
      *     model: Model,
      *     record: SearchDocumentRecord,
      *     score: int|float,
-     *     matched_tokens: array<int, string>
+     *     matched_tokens: array<int, string>,
+     *     candidate_source: string|null,
+     *     matched_query: string|null
      * }
      */
     public function toArray(): array
@@ -32,6 +36,8 @@ final readonly class SearchResult
             'record' => $this->record,
             'score' => $this->score,
             'matched_tokens' => $this->matchedTokens,
+            'candidate_source' => $this->candidateSource,
+            'matched_query' => $this->matchedQuery,
         ];
     }
 }

@@ -34,8 +34,19 @@ return [
         'max_limit' => 100,
     ],
 
+    'query_expansion' => [
+        'enabled' => true,
+        'max_candidates' => 25,
+        'original_boost' => 1.0,
+        'keyboard_boost' => 0.95,
+        'keyboard_synonym_boost' => 0.80,
+    ],
+
     'synonyms' => [
         'enabled' => false,
+        'bidirectional' => true,
+        'max_candidates' => 20,
+        'boost' => 0.85,
         'map' => [],
     ],
 

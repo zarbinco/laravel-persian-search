@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch\Search;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
+use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 
@@ -21,10 +22,13 @@ final class SearchQueryBuilder
 
     private int $offset = 0;
 
+    private bool $expansionEnabled = true;
+
     public function __construct(
         private readonly string $query,
         private readonly SearchNormalizer $normalizer,
         private readonly SearchDriver $driver,
+        private readonly QueryExpander $expander,
     ) {
         $this->limit = (int) config('persian-search.search.default_limit', 20);
     }
@@ -98,6 +102,18 @@ final class SearchQueryBuilder
         return $this;
     }
 
+    public function expand(bool $enabled = true): self
+    {
+        $this->expansionEnabled = $enabled;
+
+        return $this;
+    }
+
+    public function withoutExpansion(): self
+    {
+        return $this->expand(false);
+    }
+
     public function results(): SearchResults
     {
         return $this->driver->search($this->queryObject(includeScores: true));
@@ -123,7 +139,7 @@ final class SearchQueryBuilder
             max(1, $this->limit),
         );
 
-        return new SearchQuery(
+        $query = new SearchQuery(
             original: $this->query,
             normalized: $this->normalizer->normalize($this->query),
             tokens: $this->normalizer->tokens($this->query),
@@ -133,6 +149,12 @@ final class SearchQueryBuilder
             offset: $this->offset,
             includeScores: $includeScores,
         );
+
+        if (! $this->expansionEnabled || ! (bool) config('persian-search.query_expansion.enabled', true)) {
+            return $query;
+        }
+
+        return $query->withCandidates($this->expander->expand($query));
     }
 
     /**

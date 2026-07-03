@@ -14,8 +14,11 @@ The package currently supports:
 - Manual indexing, deletion, and flushing APIs
 - Optional automatic indexing on model save/delete/restore
 - Portable database search over persisted search documents
+- Search-time query expansion with candidate boosting
+- Configurable synonym expansion
+- Wrong-keyboard typing correction for English-keyboard input intended as Persian
 - Deterministic relevance scoring
-- Result objects with scores and matched tokens
+- Result objects with scores, matched tokens, and matched query metadata
 - Artisan commands for installation, reindexing, and flushing
 
 The database driver uses normalized document data stored in `persian_search_documents`. It is portable database search, not database-specific full-text search.
@@ -47,7 +50,7 @@ php artisan persian-search:install
 php artisan migrate
 ```
 
-The default driver is `database`. Search limits, candidate limits, indexing behavior, and ranking weights are configurable in `config/persian-search.php`.
+The default driver is `database`. Search limits, candidate limits, indexing behavior, query expansion, synonyms, keyboard correction, and ranking weights are configurable in `config/persian-search.php`.
 
 ## Defining Searchable Models
 
@@ -140,6 +143,8 @@ foreach ($results->items() as $result) {
     $model = $result->model;
     $score = $result->score;
     $matchedTokens = $result->matchedTokens;
+    $candidateSource = $result->candidateSource;
+    $matchedQuery = $result->matchedQuery;
 }
 ```
 
@@ -154,6 +159,68 @@ $products = PersianSearch::search('كیك')
 
 If no locale is provided, results are not filtered by locale.
 
+Disable query expansion for a single search when you need exact normalized query behavior:
+
+```php
+$products = App\Models\Product::persianSearch('كیك شکلاتي')
+    ->withoutExpansion()
+    ->get();
+```
+
+## Query Expansion
+
+Search queries are expanded into query candidates at search time. The original normalized query is always kept as the first candidate, and additional candidates can come from wrong-keyboard correction and configured synonyms.
+
+Query candidates are not stored in the index. Indexed document titles, content, fields, and tokens remain normalized model data only.
+
+Inspect candidates through the facade:
+
+```php
+$candidates = PersianSearch::expand(';dt');
+```
+
+Each candidate includes its source, original candidate text, normalized text, tokens, and boost.
+
+## Synonyms
+
+Synonym expansion is configurable and disabled by default:
+
+```php
+'synonyms' => [
+    'enabled' => true,
+    'bidirectional' => true,
+    'max_candidates' => 20,
+    'boost' => 0.85,
+    'map' => [
+        'گوشی' => ['موبایل', 'تلفن همراه'],
+    ],
+],
+```
+
+With that configuration, this query can match indexed content such as `گوشی سامسونگ`:
+
+```php
+$products = App\Models\Product::persianSearch('موبایل سامسونگ')->get();
+```
+
+Synonym keys and values are normalized and tokenized through `SearchNormalizer`, which delegates to `laravel-persian-core`.
+
+## Wrong-Keyboard Typing Correction
+
+Wrong-keyboard correction handles English-keyboard input intended as Persian. It is enabled by default for English-to-Persian query candidates:
+
+```php
+$products = App\Models\Product::persianSearch(';dt')->get();
+```
+
+The query above can match indexed content such as `کیف`. Keyboard correction only applies to user search input. It does not change model data, stored search documents, or Persian text normalization rules.
+
+Persian-to-English correction is not enabled by default.
+
+## Candidate Boosting
+
+Each query candidate has a boost. The database driver scores each indexed document against candidates and uses the best boosted score for ordering. The original query receives the strongest default boost, keyboard-corrected candidates receive a slightly lower boost, and synonym candidates receive configurable lower boosts.
+
 ## Relevance
 
 The database ranker scores persisted documents using:
@@ -163,10 +230,11 @@ The database ranker scores persisted documents using:
 - Individual token matches
 - Title boosts
 - Stored field weights
+- Query candidate boosts
 
 Search query normalization and tokenization always go through `SearchNormalizer`, which delegates to `laravel-persian-core`.
 
-The scoring is deterministic and intentionally simple. It does not perform synonym expansion, typo correction, fuzzy matching, or wrong-keyboard typing correction.
+The scoring is deterministic and intentionally simple. It does not perform fuzzy matching, typo correction beyond wrong-keyboard layout correction, stemming, transliteration, or database-specific full-text search.
 
 ## Current Features
 
@@ -179,23 +247,25 @@ The scoring is deterministic and intentionally simple. It does not perform synon
 - Manual indexing, deletion, and flushing APIs
 - Automatic save/delete/restore indexing hooks
 - Database search driver over persisted documents
+- Search-time query candidate expansion
+- Wrong-keyboard typing correction for English-keyboard input intended as Persian
+- Configurable synonym expansion
+- Candidate boosting across original, keyboard, and synonym candidates
 - Relevance-ranked Eloquent model results
-- Result objects with scores and matched tokens
+- Result objects with scores, matched tokens, candidate source, and matched query
 - Installation, reindexing, and flushing Artisan commands
 - Publishable package configuration and migration
 
 ## Planned Capabilities
 
-- Query expansion
-- Synonyms
-- Wrong-keyboard typing correction
 - Scout integration
 - Meilisearch integration
 - Elasticsearch integration
 - Analytics and operational tooling
+- Fuzzy typo correction and advanced suggestions
 - Documentation and release-readiness improvements
 
-Wrong-keyboard typing correction is a search-layer feature planned for this package. It belongs to query candidate expansion in `laravel-persian-search`, not to `laravel-persian-core` as text normalization.
+Wrong-keyboard typing correction belongs to query candidate expansion in `laravel-persian-search`, not to `laravel-persian-core` as text normalization.
 
 ## Boundaries
 
@@ -203,7 +273,9 @@ Wrong-keyboard typing correction is a search-layer feature planned for this pack
 
 `laravel-persian-search` starts after that boundary. It must not duplicate Persian normalization logic, character maps, digit conversion, punctuation cleanup, ZWNJ handling, or tokenization rules already provided by `laravel-persian-core`.
 
-The current database driver searches persisted normalized documents. It does not implement synonyms, wrong-keyboard typing correction, query expansion, fuzzy matching, Scout, Meilisearch, or Elasticsearch.
+Wrong-keyboard typing correction is intentionally scoped to query candidate expansion. Keyboard layout maps are used only to interpret search input typed with the wrong keyboard layout; they are not Persian normalization maps.
+
+The current database driver searches persisted normalized documents. It does not implement fuzzy matching, stemming, transliteration, Scout, Meilisearch, or Elasticsearch.
 
 ## Testing
 

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
+use Zarbinco\PersianSearch\Search\QueryCandidate;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchResult;
 use Zarbinco\PersianSearch\Search\SearchResults;
@@ -22,11 +23,12 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             return new SearchResults($query, [], 0);
         }
 
-        $records = $this->candidateRecords($query);
+        $candidates = $this->queryCandidates($query);
+        $records = $this->candidateRecords($query, $candidates);
         $scored = [];
 
         foreach ($records as $record) {
-            $score = $this->ranker->score($record, $query);
+            $score = $this->bestScore($record, $candidates);
 
             if ($score['score'] <= 0) {
                 continue;
@@ -36,6 +38,8 @@ final readonly class DatabaseSearchDriver implements SearchDriver
                 'record' => $record,
                 'score' => $score['score'],
                 'matched_tokens' => $score['matched_tokens'],
+                'candidate_source' => $score['candidate_source'],
+                'matched_query' => $score['matched_query'],
             ];
         }
 
@@ -65,6 +69,8 @@ final readonly class DatabaseSearchDriver implements SearchDriver
                 record: $record,
                 score: $item['score'],
                 matchedTokens: $item['matched_tokens'],
+                candidateSource: $item['candidate_source'],
+                matchedQuery: $item['matched_query'],
             );
         }
 
@@ -75,9 +81,68 @@ final readonly class DatabaseSearchDriver implements SearchDriver
     }
 
     /**
+     * @return list<QueryCandidate>
+     */
+    private function queryCandidates(SearchQuery $query): array
+    {
+        if ($query->hasCandidates()) {
+            return $query->candidates();
+        }
+
+        if ($query->isEmpty()) {
+            return [];
+        }
+
+        return [
+            new QueryCandidate(
+                source: 'original',
+                original: $query->original,
+                normalized: $query->normalized,
+                tokens: $query->tokens,
+                boost: 1.0,
+            ),
+        ];
+    }
+
+    /**
+     * @param  list<QueryCandidate>  $candidates
+     * @return array{
+     *     score: float,
+     *     matched_tokens: array<int, string>,
+     *     candidate_source: string|null,
+     *     matched_query: string|null
+     * }
+     */
+    private function bestScore(SearchDocumentRecord $record, array $candidates): array
+    {
+        $best = [
+            'score' => 0.0,
+            'matched_tokens' => [],
+            'candidate_source' => null,
+            'matched_query' => null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $score = $this->ranker->scoreCandidate($record, $candidate);
+
+            if ($score['score'] > $best['score']) {
+                $best = [
+                    'score' => $score['score'],
+                    'matched_tokens' => $score['matched_tokens'],
+                    'candidate_source' => $score['candidate_source'],
+                    'matched_query' => $score['matched_query'],
+                ];
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * @param  list<QueryCandidate>  $candidates
      * @return list<SearchDocumentRecord>
      */
-    private function candidateRecords(SearchQuery $query): array
+    private function candidateRecords(SearchQuery $query, array $candidates): array
     {
         $builder = SearchDocumentRecord::query();
 
@@ -89,8 +154,18 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $builder->where('locale', SearchDocumentRecord::localeStorageKey($query->locale));
         }
 
+        $terms = [];
+
+        foreach ($candidates as $candidate) {
+            $terms[] = $candidate->normalized;
+
+            foreach ($candidate->tokens as $token) {
+                $terms[] = $token;
+            }
+        }
+
         $terms = array_values(array_unique(array_filter(
-            array_merge([$query->normalized], $query->tokens),
+            $terms,
             static fn (string $term): bool => $term !== '',
         )));
 

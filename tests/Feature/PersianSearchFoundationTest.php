@@ -54,6 +54,7 @@ final class PersianSearchFoundationTest extends TestCase
     {
         $forbiddenNames = [
             'PersianNormalizer',
+            'ArabicNormalizer',
             'CharacterMap',
             'DigitNormalizer',
             'ZwnjNormalizer',
@@ -67,6 +68,11 @@ final class PersianSearchFoundationTest extends TestCase
             foreach ($forbiddenNames as $name) {
                 $this->assertStringNotContainsString($name, $file->getBasename('.php'));
                 $this->assertStringNotContainsString("class {$name}", $contents);
+            }
+
+            if ($file->getBasename('.php') !== 'KeyboardLayoutCorrector') {
+                $this->assertStringNotContainsString("'q' => 'ض'", $contents);
+                $this->assertStringNotContainsString("';' => 'ک'", $contents);
             }
         }
 
@@ -107,6 +113,40 @@ final class PersianSearchFoundationTest extends TestCase
 
         $this->assertIsString($queryBuilder);
         $this->assertStringContainsString('SearchNormalizer', $queryBuilder);
+
+        foreach ([
+            __DIR__.'/../../src/Query/DefaultQueryExpander.php',
+            __DIR__.'/../../src/Query/SynonymExpander.php',
+        ] as $path) {
+            $contents = file_get_contents($path);
+
+            $this->assertIsString($contents);
+            $this->assertStringContainsString('SearchNormalizer', $contents);
+            $this->assertStringNotContainsString('Persian::search', $contents);
+            $this->assertStringNotContainsString('preg_replace', $contents);
+        }
+    }
+
+    public function test_regression_no_fuzzy_typo_or_external_search_adapters_are_added(): void
+    {
+        $forbiddenNames = [
+            'Fuzzy',
+            'TypoCorrector',
+            'Scout',
+            'Meilisearch',
+            'Elasticsearch',
+        ];
+
+        foreach ($this->sourceFiles() as $file) {
+            $contents = file_get_contents($file->getPathname());
+
+            $this->assertIsString($contents);
+
+            foreach ($forbiddenNames as $name) {
+                $this->assertStringNotContainsString($name, $file->getBasename('.php'));
+                $this->assertStringNotContainsString("class {$name}", $contents);
+            }
+        }
     }
 
     /**

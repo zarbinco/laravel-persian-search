@@ -272,7 +272,105 @@ final class DatabaseSearchDriverTest extends TestCase
         $this->assertTrue(PersianSearch::search('كیك')->for(SearchDriverProduct::class)->get()->isEmpty());
     }
 
-    public function test_no_wrong_keyboard_or_synonym_expansion_is_active(): void
+    public function test_database_search_returns_model_for_wrong_keyboard_input(): void
+    {
+        $bag = SearchDriverProduct::create([
+            'title' => 'کیف چرمی',
+            'description' => 'کیف زنانه چرم طبیعی',
+        ]);
+
+        PersianSearch::index($bag);
+
+        $models = SearchDriverProduct::persianSearch(';dt')->get();
+        $results = SearchDriverProduct::persianSearch(';dt')->results();
+        $result = $results->items()[0] ?? null;
+
+        $this->assertCount(1, $models);
+        $this->assertTrue($bag->is($models->first()));
+        $this->assertInstanceOf(SearchResult::class, $result);
+        $this->assertGreaterThan(0, $result->score);
+        $this->assertSame('keyboard', $result->candidateSource);
+        $this->assertSame(Persian::search('کیف')->normalize(), $result->matchedQuery);
+    }
+
+    public function test_database_search_returns_model_for_configured_synonym_input(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.map', [
+            'گوشی' => ['موبایل', 'تلفن همراه'],
+        ]);
+
+        $phone = SearchDriverProduct::create([
+            'title' => 'گوشی سامسونگ',
+            'description' => 'اندرویدی',
+        ]);
+
+        PersianSearch::index($phone);
+
+        $results = SearchDriverProduct::persianSearch('موبایل سامسونگ')->results();
+        $result = $results->items()[0] ?? null;
+
+        $this->assertCount(1, $results->items());
+        $this->assertInstanceOf(SearchResult::class, $result);
+        $this->assertTrue($phone->is($result->model));
+        $this->assertGreaterThan(0, $result->score);
+        $this->assertSame('synonym', $result->candidateSource);
+        $this->assertSame(Persian::search('گوشی سامسونگ')->normalize(), $result->matchedQuery);
+    }
+
+    public function test_original_candidate_outscores_expanded_candidate_when_matches_are_comparable(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.map', [
+            'گوشی' => ['موبایل'],
+        ]);
+
+        $original = SearchDriverProduct::create([
+            'title' => 'موبایل سامسونگ',
+            'description' => 'اندرویدی',
+        ]);
+        $expanded = SearchDriverProduct::create([
+            'title' => 'گوشی سامسونگ',
+            'description' => 'اندرویدی',
+        ]);
+
+        PersianSearch::index($expanded);
+        PersianSearch::index($original);
+
+        $items = SearchDriverProduct::persianSearch('موبایل سامسونگ')->results()->items();
+
+        $this->assertCount(2, $items);
+        $this->assertTrue($original->is($items[0]->model));
+        $this->assertSame('original', $items[0]->candidateSource);
+        $this->assertTrue($expanded->is($items[1]->model));
+        $this->assertSame('synonym', $items[1]->candidateSource);
+        $this->assertGreaterThan($items[1]->score, $items[0]->score);
+    }
+
+    public function test_keyboard_and_synonym_expansion_do_not_mutate_stored_index_content(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.map', [
+            'کیف' => ['ساک'],
+        ]);
+
+        $bag = SearchDriverProduct::create([
+            'title' => 'کیف',
+            'description' => 'چرمی',
+        ]);
+
+        PersianSearch::index($bag);
+        SearchDriverProduct::persianSearch(';dt')->get();
+        SearchDriverProduct::persianSearch('ساک')->get();
+
+        $record = SearchDocumentRecord::firstOrFail();
+
+        $this->assertSame(Persian::search('کیف چرمی')->normalize(), $record->content);
+        $this->assertStringNotContainsString(';dt', $record->content);
+        $this->assertStringNotContainsString('ساک', $record->content);
+    }
+
+    public function test_synonym_expansion_is_inactive_by_default(): void
     {
         $bag = SearchDriverProduct::create([
             'title' => 'کیف',
@@ -286,7 +384,6 @@ final class DatabaseSearchDriverTest extends TestCase
         PersianSearch::index($bag);
         PersianSearch::index($car);
 
-        $this->assertTrue(PersianSearch::search(';dt')->for(SearchDriverProduct::class)->get()->isEmpty());
         $this->assertTrue(PersianSearch::search('ماشین')->for(SearchDriverProduct::class)->get()->isEmpty());
     }
 
