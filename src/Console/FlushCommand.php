@@ -30,7 +30,7 @@ final class FlushCommand extends Command
             return self::SUCCESS;
         }
 
-        if (! (bool) $this->option('force') && ! $this->confirm('Delete all Persian search documents?')) {
+        if (! (bool) $this->option('force') && ! $this->confirm('Delete all persisted Persian search documents?')) {
             $this->components->warn('Flush cancelled.');
 
             return self::FAILURE;

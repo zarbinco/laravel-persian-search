@@ -149,6 +149,26 @@ final class PersianSearchFoundationTest extends TestCase
         }
     }
 
+    public function test_public_documentation_does_not_expose_internal_phase_labels(): void
+    {
+        $forbidden = [
+            'Phase 1',
+            'Phase 2',
+            'current phase',
+            'this phase',
+        ];
+
+        foreach ($this->publicDocumentationFiles() as $path) {
+            $contents = file_get_contents($path);
+
+            $this->assertIsString($contents);
+
+            foreach ($forbidden as $term) {
+                $this->assertStringNotContainsString($term, $contents, "Unexpected internal label [{$term}] in [{$path}].");
+            }
+        }
+    }
+
     /**
      * @return list<SplFileInfo>
      */
@@ -173,5 +193,18 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertInstanceOf(Application::class, $this->app);
 
         return $this->app;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function publicDocumentationFiles(): array
+    {
+        return [
+            __DIR__.'/../../README.md',
+            __DIR__.'/../../CHANGELOG.md',
+            __DIR__.'/../../CONTRIBUTING.md',
+            __DIR__.'/../../docs/release-checklist.md',
+        ];
     }
 }

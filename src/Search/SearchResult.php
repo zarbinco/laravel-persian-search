@@ -8,7 +8,7 @@ use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 final readonly class SearchResult
 {
     /**
-     * @param  array<int, string>  $matchedTokens
+     * @param  list<string>  $matchedTokens
      */
     public function __construct(
         public Model $model,
@@ -24,7 +24,7 @@ final readonly class SearchResult
      *     model: Model,
      *     record: SearchDocumentRecord,
      *     score: int|float,
-     *     matched_tokens: array<int, string>,
+     *     matched_tokens: list<string>,
      *     candidate_source: string|null,
      *     matched_query: string|null
      * }

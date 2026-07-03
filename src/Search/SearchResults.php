@@ -64,7 +64,7 @@ final readonly class SearchResults
      *         model: Model,
      *         record: SearchDocumentRecord,
      *         score: int|float,
-     *         matched_tokens: array<int, string>,
+     *         matched_tokens: list<string>,
      *         candidate_source: string|null,
      *         matched_query: string|null
      *     }>

@@ -24,7 +24,7 @@ use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
  * @method static SearchIndexManager indexManager()
  * @method static SearchQueryBuilder search(string $query)
  * @method static QueryExpander queryExpander()
- * @method static array<int, \Zarbinco\PersianSearch\Search\QueryCandidate> expand(string $query)
+ * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(string $query)
  * @method static SearchDriver driver()
  */
 final class PersianSearch extends Facade

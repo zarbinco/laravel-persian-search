@@ -1,27 +1,28 @@
-# laravel-persian-search
+# Laravel Persian Search
 
-`zarbinco/laravel-persian-search` provides Persian-aware indexing and database search utilities for Laravel applications, powered by `zarbinco/laravel-persian-core`.
+Laravel Persian Search provides Persian-aware indexing, database search, relevance scoring, query expansion, configurable synonyms, and wrong-keyboard typing correction for Laravel applications. It is powered by `zarbinco/laravel-persian-core` for normalization and tokenization.
 
-## Overview
+## Features
 
-The package currently supports:
-
-- Search normalization and tokenization delegated to `laravel-persian-core`
-- Searchable model declarations through `PersianSearchable`
-- Eloquent helpers through `HasPersianSearch`
-- In-memory `SearchDocument` creation from Eloquent models
-- Database-backed persistence for normalized search documents
-- Manual indexing, deletion, and flushing APIs
-- Optional automatic indexing on model save/delete/restore
-- Portable database search over persisted search documents
-- Search-time query expansion with candidate boosting
-- Configurable synonym expansion
+- Delegates Persian search normalization and tokenization to `laravel-persian-core`
+- Searchable Eloquent model declarations
+- In-memory normalized search documents
+- Database-backed search index
+- Manual indexing and deletion APIs
+- Automatic indexing on save, delete, and restore
+- Reindex and flush console commands
+- Portable database search driver
+- Relevance-ranked Eloquent model results
+- Result objects with scores, matched tokens, candidate source, and matched query
+- Query candidate expansion
+- Configurable synonyms
 - Wrong-keyboard typing correction for English-keyboard input intended as Persian
-- Deterministic relevance scoring
-- Result objects with scores, matched tokens, and matched query metadata
-- Artisan commands for installation, reindexing, and flushing
 
-The database driver uses normalized document data stored in `persian_search_documents`. It is portable database search, not database-specific full-text search.
+## Requirements
+
+- PHP `^8.2`
+- Laravel components `^11.0`, `^12.0`, or `^13.0`
+- `zarbinco/laravel-persian-core`
 
 ## Installation
 
@@ -31,11 +32,18 @@ Install the package with Composer:
 composer require zarbinco/laravel-persian-search
 ```
 
-The package depends on `zarbinco/laravel-persian-core` and uses Laravel package auto-discovery.
+The package depends on `zarbinco/laravel-persian-core`, which Composer installs as a production dependency. Laravel package auto-discovery registers the service provider and optional facade alias.
 
 ## Configuration
 
-Publish the configuration and migration files:
+Publish the configuration and migration files with the install command:
+
+```bash
+php artisan persian-search:install
+php artisan migrate
+```
+
+You may also publish them manually:
 
 ```bash
 php artisan vendor:publish --tag=persian-search-config
@@ -43,25 +51,17 @@ php artisan vendor:publish --tag=persian-search-migrations
 php artisan migrate
 ```
 
-Or use the install command:
-
-```bash
-php artisan persian-search:install
-php artisan migrate
-```
-
-The default driver is `database`. Search limits, candidate limits, indexing behavior, query expansion, synonyms, keyboard correction, and ranking weights are configurable in `config/persian-search.php`.
+The default driver is `database`. Search limits, candidate loading, indexing behavior, query expansion, synonyms, keyboard correction, and ranking weights are configured in `config/persian-search.php`.
 
 ## Defining Searchable Models
 
-Models describe their Persian-searchable content by implementing `PersianSearchable` and using `HasPersianSearch`:
+Models describe their searchable content by using `HasPersianSearch` and returning weighted searchable fields:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
-use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 
-final class Product extends Model implements PersianSearchable
+final class Product extends Model
 {
     use HasPersianSearch;
 
@@ -78,7 +78,7 @@ final class Product extends Model implements PersianSearchable
 
 Field values may come from model attributes or loaded relation paths such as `brand.name`. Field weights are stored and used by the database ranker.
 
-## Indexing
+## Manual Indexing
 
 Persist a normalized search document manually:
 
@@ -98,20 +98,37 @@ PersianSearch::deleteFromIndex($product);
 $product->deletePersianSearchDocument();
 ```
 
-When `persian-search.index.sync_on_save` is enabled, models using `HasPersianSearch` are indexed after save. When `delete_on_model_delete` is enabled, deleted models are removed from the index. Soft-deleted models are removed unless `include_soft_deleted` is enabled, and restored models are indexed again when automatic sync is enabled.
+## Automatic Indexing
 
-Reindex from the command line:
+When `persian-search.index.sync_on_save` is enabled, models using `HasPersianSearch` are indexed after save.
+
+When `persian-search.index.delete_on_model_delete` is enabled, deleted models are removed from the index. Soft-deleted models are removed unless `include_soft_deleted` is enabled. Restored models are indexed again when automatic sync is enabled.
+
+## Reindexing
+
+Rebuild search documents for a model:
 
 ```bash
 php artisan persian-search:reindex "App\Models\Product" --fresh
 ```
 
-Flush indexed documents:
+The `--fresh` option removes existing indexed documents for that model before reindexing.
+
+## Flushing
+
+Flush one searchable model type:
 
 ```bash
 php artisan persian-search:flush "App\Models\Product"
+```
+
+Flush all search documents:
+
+```bash
 php artisan persian-search:flush --force
 ```
+
+Without `--force`, flushing all documents asks for confirmation.
 
 ## Searching
 
@@ -122,7 +139,6 @@ use Zarbinco\PersianSearch\Facades\PersianSearch;
 
 $products = PersianSearch::search('كیك شکلاتي')
     ->for(App\Models\Product::class)
-    ->limit(10)
     ->get();
 ```
 
@@ -132,23 +148,7 @@ Search through the model convenience API:
 $products = App\Models\Product::persianSearch('كیك شکلاتي')->get();
 ```
 
-Fetch result objects with scores:
-
-```php
-$results = PersianSearch::search('كیك شکلاتي')
-    ->for(App\Models\Product::class)
-    ->results();
-
-foreach ($results->items() as $result) {
-    $model = $result->model;
-    $score = $result->score;
-    $matchedTokens = $result->matchedTokens;
-    $candidateSource = $result->candidateSource;
-    $matchedQuery = $result->matchedQuery;
-}
-```
-
-Use locale filtering when your indexed documents include locales:
+Use locale filtering when indexed documents include locales:
 
 ```php
 $products = PersianSearch::search('كیك')
@@ -157,9 +157,7 @@ $products = PersianSearch::search('كیك')
     ->get();
 ```
 
-If no locale is provided, results are not filtered by locale.
-
-Disable query expansion for a single search when you need exact normalized query behavior:
+Disable query expansion for a single search when exact normalized query behavior is needed:
 
 ```php
 $products = App\Models\Product::persianSearch('كیك شکلاتي')
@@ -167,9 +165,27 @@ $products = App\Models\Product::persianSearch('كیك شکلاتي')
     ->get();
 ```
 
+## Result Objects
+
+Fetch result objects when you need scores and match metadata:
+
+```php
+$results = PersianSearch::search('كیك شکلاتي')
+    ->for(App\Models\Product::class)
+    ->results();
+
+foreach ($results->items() as $result) {
+    $result->model;
+    $result->score;
+    $result->matchedTokens;
+    $result->candidateSource;
+    $result->matchedQuery;
+}
+```
+
 ## Query Expansion
 
-Search queries are expanded into query candidates at search time. The original normalized query is always kept as the first candidate, and additional candidates can come from wrong-keyboard correction and configured synonyms.
+Search queries are expanded into candidates at search time. The original normalized query is always kept as the first candidate, and additional candidates can come from wrong-keyboard correction and configured synonyms.
 
 Query candidates are not stored in the index. Indexed document titles, content, fields, and tokens remain normalized model data only.
 
@@ -200,28 +216,26 @@ Synonym expansion is configurable and disabled by default:
 With that configuration, this query can match indexed content such as `گوشی سامسونگ`:
 
 ```php
-$products = App\Models\Product::persianSearch('موبایل سامسونگ')->get();
+$products = Product::persianSearch('موبایل سامسونگ')->get();
 ```
 
 Synonym keys and values are normalized and tokenized through `SearchNormalizer`, which delegates to `laravel-persian-core`.
 
 ## Wrong-Keyboard Typing Correction
 
-Wrong-keyboard correction handles English-keyboard input intended as Persian. It is enabled by default for English-to-Persian query candidates:
+Wrong-keyboard correction handles English-keyboard input intended as Persian:
 
 ```php
-$products = App\Models\Product::persianSearch(';dt')->get();
+$products = Product::persianSearch(';dt')->get();
 ```
 
-The query above can match indexed content such as `کیف`. Keyboard correction only applies to user search input. It does not change model data, stored search documents, or Persian text normalization rules.
+The query above can match indexed content such as `کیف`.
+
+This happens only at query time. It does not mutate stored index content, and it is not part of `laravel-persian-core` normalization. Wrong-keyboard typing correction belongs to `laravel-persian-search` as query candidate expansion.
 
 Persian-to-English correction is not enabled by default.
 
-## Candidate Boosting
-
-Each query candidate has a boost. The database driver scores each indexed document against candidates and uses the best boosted score for ordering. The original query receives the strongest default boost, keyboard-corrected candidates receive a slightly lower boost, and synonym candidates receive configurable lower boosts.
-
-## Relevance
+## Relevance Scoring
 
 The database ranker scores persisted documents using:
 
@@ -232,55 +246,42 @@ The database ranker scores persisted documents using:
 - Stored field weights
 - Query candidate boosts
 
-Search query normalization and tokenization always go through `SearchNormalizer`, which delegates to `laravel-persian-core`.
+The database driver scores each indexed document against query candidates and uses the best boosted score for ordering. The original query receives the strongest default boost, keyboard-corrected candidates receive a slightly lower boost, and synonym candidates receive configurable lower boosts.
 
-The scoring is deterministic and intentionally simple. It does not perform fuzzy matching, typo correction beyond wrong-keyboard layout correction, stemming, transliteration, or database-specific full-text search.
+## Console Commands
 
-## Current Features
-
-- Persian search normalization through `laravel-persian-core`
-- Persian search token generation through `laravel-persian-core`
-- Searchable model declaration through `PersianSearchable`
-- Eloquent defaults and convenience helpers through `HasPersianSearch`
-- In-memory normalized `SearchDocument` creation from Eloquent models
-- Database-backed storage for normalized search documents
-- Manual indexing, deletion, and flushing APIs
-- Automatic save/delete/restore indexing hooks
-- Database search driver over persisted documents
-- Search-time query candidate expansion
-- Wrong-keyboard typing correction for English-keyboard input intended as Persian
-- Configurable synonym expansion
-- Candidate boosting across original, keyboard, and synonym candidates
-- Relevance-ranked Eloquent model results
-- Result objects with scores, matched tokens, candidate source, and matched query
-- Installation, reindexing, and flushing Artisan commands
-- Publishable package configuration and migration
-
-## Planned Capabilities
-
-- Scout integration
-- Meilisearch integration
-- Elasticsearch integration
-- Analytics and operational tooling
-- Fuzzy typo correction and advanced suggestions
-- Documentation and release-readiness improvements
-
-Wrong-keyboard typing correction belongs to query candidate expansion in `laravel-persian-search`, not to `laravel-persian-core` as text normalization.
+```bash
+php artisan persian-search:install
+php artisan persian-search:reindex "App\Models\Product" --fresh
+php artisan persian-search:flush "App\Models\Product"
+php artisan persian-search:flush --force
+```
 
 ## Boundaries
 
+This package uses portable database search by default. It is not a full-text engine.
+
 `laravel-persian-core` owns Persian text normalization, digit conversion, punctuation cleanup, ZWNJ handling, and tokenization.
 
-`laravel-persian-search` starts after that boundary. It must not duplicate Persian normalization logic, character maps, digit conversion, punctuation cleanup, ZWNJ handling, or tokenization rules already provided by `laravel-persian-core`.
+`laravel-persian-search` owns searchable model declarations, indexing, search execution, relevance scoring, and query intent features such as synonyms and wrong-keyboard correction.
 
-Wrong-keyboard typing correction is intentionally scoped to query candidate expansion. Keyboard layout maps are used only to interpret search input typed with the wrong keyboard layout; they are not Persian normalization maps.
+This package does not currently provide Scout, Meilisearch, or Elasticsearch adapters. It does not perform fuzzy typo correction, stemming, or transliteration.
 
-The current database driver searches persisted normalized documents. It does not implement fuzzy matching, stemming, transliteration, Scout, Meilisearch, or Elasticsearch.
+## Planned Capabilities
+
+- Scout adapter
+- Meilisearch and Elasticsearch adapters
+- Search analytics
+- Suggestion engine
+- More advanced ranking strategies
+
+## Release Notes
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Testing
 
 ```bash
-composer validate --strict
 composer test
 composer analyse
 composer format -- --test

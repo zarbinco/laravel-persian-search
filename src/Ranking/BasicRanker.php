@@ -12,7 +12,7 @@ final class BasicRanker
      * @return array{
      *     base_score: float,
      *     score: float,
-     *     matched_tokens: array<int, string>,
+     *     matched_tokens: list<string>,
      *     candidate_source: string,
      *     matched_query: string
      * }
@@ -42,7 +42,7 @@ final class BasicRanker
      * @return array{
      *     base_score: float,
      *     score: float,
-     *     matched_tokens: array<int, string>,
+     *     matched_tokens: list<string>,
      *     candidate_source: string,
      *     matched_query: string
      * }
@@ -162,7 +162,7 @@ final class BasicRanker
 
     /**
      * @param  array<mixed>  $values
-     * @return array<int, string>
+     * @return list<string>
      */
     private function stringList(array $values): array
     {

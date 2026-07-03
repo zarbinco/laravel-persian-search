@@ -108,7 +108,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
      * @param  list<QueryCandidate>  $candidates
      * @return array{
      *     score: float,
-     *     matched_tokens: array<int, string>,
+     *     matched_tokens: list<string>,
      *     candidate_source: string|null,
      *     matched_query: string|null
      * }

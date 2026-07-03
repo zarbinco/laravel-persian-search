@@ -318,6 +318,63 @@ final class DatabaseSearchDriverTest extends TestCase
         $this->assertSame(Persian::search('گوشی سامسونگ')->normalize(), $result->matchedQuery);
     }
 
+    public function test_facade_smoke_flow_indexes_and_searches_normal_keyboard_and_synonym_queries(): void
+    {
+        $bag = SearchDriverProduct::create([
+            'title' => 'کیف چرمی',
+            'description' => 'کیف زنانه چرم طبیعی',
+        ]);
+        $cake = SearchDriverProduct::create([
+            'title' => 'كیكِ شکلاتي',
+            'description' => 'دسر تازه',
+        ]);
+        $phone = SearchDriverProduct::create([
+            'title' => 'گوشی سامسونگ',
+            'description' => 'اندرویدی',
+        ]);
+
+        PersianSearch::index($bag);
+        PersianSearch::index($cake);
+        PersianSearch::index($phone);
+
+        $normal = PersianSearch::search('کیک شکلاتی')
+            ->for(SearchDriverProduct::class)
+            ->first();
+
+        $keyboard = PersianSearch::search(';dt')
+            ->for(SearchDriverProduct::class)
+            ->results()
+            ->items()[0] ?? null;
+
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.map', [
+            'گوشی' => ['موبایل', 'تلفن همراه'],
+        ]);
+
+        $synonym = PersianSearch::search('موبایل سامسونگ')
+            ->for(SearchDriverProduct::class)
+            ->results()
+            ->items()[0] ?? null;
+
+        $this->assertInstanceOf(Model::class, $normal);
+        $this->assertTrue($cake->is($normal));
+
+        $this->assertInstanceOf(SearchResult::class, $keyboard);
+        $this->assertTrue($bag->is($keyboard->model));
+        $this->assertSame('keyboard', $keyboard->candidateSource);
+
+        $this->assertInstanceOf(SearchResult::class, $synonym);
+        $this->assertTrue($phone->is($synonym->model));
+        $this->assertSame('synonym', $synonym->candidateSource);
+
+        $storedContents = SearchDocumentRecord::query()
+            ->pluck('content')
+            ->implode(' ');
+
+        $this->assertStringNotContainsString(';dt', $storedContents);
+        $this->assertStringNotContainsString('تلفن همراه', $storedContents);
+    }
+
     public function test_original_candidate_outscores_expanded_candidate_when_matches_are_comparable(): void
     {
         config()->set('persian-search.synonyms.enabled', true);

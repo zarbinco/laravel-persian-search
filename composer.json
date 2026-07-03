@@ -3,22 +3,33 @@
     "description": "Persian-aware search indexing, query expansion, wrong-keyboard typing correction, and relevance tools for Laravel, powered by laravel-persian-core.",
     "type": "library",
     "keywords": [
+        "eloquent",
         "farsi",
+        "farsi-search",
         "indexing",
         "iran",
         "laravel",
+        "laravel-package",
         "persian",
+        "persian-search",
         "query-expansion",
         "search"
     ],
     "homepage": "https://github.com/zarbinco/laravel-persian-search",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "Zarbinco",
+            "role": "Developer"
+        }
+    ],
     "support": {
         "issues": "https://github.com/zarbinco/laravel-persian-search/issues",
         "source": "https://github.com/zarbinco/laravel-persian-search"
     },
     "require": {
         "php": "^8.2",
+        "illuminate/console": "^11.0|^12.0|^13.0",
         "illuminate/database": "^11.0|^12.0|^13.0",
         "illuminate/support": "^11.0|^12.0|^13.0",
         "zarbinco/laravel-persian-core": "dev-main"
@@ -56,8 +67,9 @@
         "format": "pint",
         "lint": [
             "composer validate --strict",
-            "phpstan analyse",
-            "phpunit"
+            "composer format -- --test",
+            "composer analyse",
+            "composer test"
         ]
     },
     "config": {
