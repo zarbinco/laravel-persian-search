@@ -76,6 +76,13 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertStringContainsString('Persian::search($value)->normalize()', $coreNormalizer);
         $this->assertStringContainsString('Persian::search($value)->tokens()', $coreNormalizer);
         $this->assertStringNotContainsString('array_values(Persian::search($value)->tokens())', $coreNormalizer);
+
+        $documentBuilder = file_get_contents(__DIR__.'/../../src/Indexing/SearchDocumentBuilder.php');
+
+        $this->assertIsString($documentBuilder);
+        $this->assertStringContainsString('SearchNormalizer', $documentBuilder);
+        $this->assertStringNotContainsString('Persian::search', $documentBuilder);
+        $this->assertStringNotContainsString('preg_replace', $documentBuilder);
     }
 
     /**

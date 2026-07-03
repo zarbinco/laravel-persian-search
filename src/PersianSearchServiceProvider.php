@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch;
 use Illuminate\Support\ServiceProvider;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 
 final class PersianSearchServiceProvider extends ServiceProvider
 {
@@ -14,9 +15,16 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(SearchNormalizer::class, CoreSearchNormalizer::class);
 
+        $this->app->singleton(SearchDocumentBuilder::class, function ($app): SearchDocumentBuilder {
+            return new SearchDocumentBuilder(
+                $app->make(SearchNormalizer::class),
+            );
+        });
+
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(
                 $app->make(SearchNormalizer::class),
+                $app->make(SearchDocumentBuilder::class),
             );
         });
 

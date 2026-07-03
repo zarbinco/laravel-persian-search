@@ -12,8 +12,10 @@ The package currently provides the foundation for Persian-aware search features:
 - A `PersianSearchManager`
 - A `SearchNormalizer` contract
 - A core-backed search normalizer that delegates to `laravel-persian-core`
+- A searchable model contract and Eloquent helper trait
+- An in-memory search document builder for Eloquent models
 
-It does not currently provide indexing, database search, relevance ranking, Scout integration, or external search-engine integrations.
+It does not currently persist search documents, execute database searches, calculate relevance ranking, integrate with Scout, or connect to external search engines.
 
 ## Installation
 
@@ -52,19 +54,52 @@ Persian::search($value)->normalize();
 Persian::search($value)->tokens();
 ```
 
+Models can describe their Persian-searchable content by implementing `PersianSearchable` and using `HasPersianSearch`:
+
+```php
+use Illuminate\Database\Eloquent\Model;
+use Zarbinco\PersianSearch\Contracts\PersianSearchable;
+use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
+
+final class Product extends Model implements PersianSearchable
+{
+    use HasPersianSearch;
+
+    public function persianSearchableFields(): array
+    {
+        return [
+            'name' => 10,
+            'brand.name' => 5,
+            'description' => 1,
+        ];
+    }
+}
+```
+
+Build an in-memory normalized search document from a model:
+
+```php
+use Zarbinco\PersianSearch\Facades\PersianSearch;
+
+$document = PersianSearch::documentFor($product);
+```
+
+The document builder reads declared model fields, resolves attributes and loaded relation paths, delegates normalization and tokenization to `laravel-persian-core`, and returns a `SearchDocument` value object. It does not write to the database or execute a search query.
+
 ## Current Features
 
 - Search normalization through `laravel-persian-core`
 - Search token generation through `laravel-persian-core`
 - Container binding for `Zarbinco\PersianSearch\Contracts\SearchNormalizer`
 - Manager and facade access to normalization and tokenization
+- Searchable model declaration through `Zarbinco\PersianSearch\Contracts\PersianSearchable`
+- Eloquent defaults and convenience helpers through `HasPersianSearch`
+- In-memory normalized `SearchDocument` creation from Eloquent models
 - Publishable package configuration
 - PHPUnit, Larastan/PHPStan, and Laravel Pint setup
 
 ## Planned Capabilities
 
-- Searchable model contracts
-- Search document builders
 - Database index storage
 - Database search driver
 - Relevance ranking
