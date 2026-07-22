@@ -4,10 +4,10 @@ namespace Zarbinco\PersianSearch;
 
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
+use Throwable;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
@@ -16,20 +16,22 @@ use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\QueryCandidate;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
+use Zarbinco\PersianSearch\Text\PreparedSearchText;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final class PersianSearchManager
 {
     public function __construct(
-        private readonly SearchNormalizer $normalizer,
+        private readonly SearchTextPipeline $pipeline,
         private readonly SearchDocumentBuilder $builder,
         private readonly SearchIndexManager $indexManager,
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
     ) {}
 
-    public function normalizer(): SearchNormalizer
+    public function textPipeline(): SearchTextPipeline
     {
-        return $this->normalizer;
+        return $this->pipeline;
     }
 
     public function builder(): SearchDocumentBuilder
@@ -52,17 +54,22 @@ final class PersianSearchManager
         return $this->expander;
     }
 
-    public function normalize(string $value): string
+    public function prepareText(mixed $value, ?string $locale = null): PreparedSearchText
     {
-        return $this->normalizer->normalize($value);
+        return $this->pipeline->prepare($value, $locale ?? $this->applicationLocale());
+    }
+
+    public function normalize(string $value, ?string $locale = null): string
+    {
+        return $this->prepareText($value, $locale)->normalized;
     }
 
     /**
      * @return array<int, string>
      */
-    public function tokens(string $value): array
+    public function tokens(string $value, ?string $locale = null): array
     {
-        return $this->normalizer->tokens($value);
+        return $this->prepareText($value, $locale)->tokens;
     }
 
     public function documentFor(Model $model): SearchDocument
@@ -110,20 +117,23 @@ final class PersianSearchManager
 
     public function search(string $query): SearchQueryBuilder
     {
-        return new SearchQueryBuilder($query, $this->normalizer, $this->driver, $this->expander);
+        return new SearchQueryBuilder($query, $this->pipeline, $this->driver, $this->expander);
     }
 
     /**
      * @return list<QueryCandidate>
      */
-    public function expand(string $query): array
+    public function expand(string $query, ?string $locale = null): array
     {
+        $prepared = $this->prepareText($query, $locale);
+
         $searchQuery = new SearchQuery(
-            original: $query,
-            normalized: $this->normalizer->normalize($query),
-            tokens: $this->normalizer->tokens($query),
+            original: $prepared->raw,
+            normalized: $prepared->normalized,
+            tokens: $prepared->tokens,
             sourceTypes: [],
-            locale: null,
+            locale: $locale,
+            textLocale: $prepared->locale,
             partition: (string) config('persian-search.index.default_partition', 'default'),
             limit: (int) config('persian-search.search.default_limit', 20),
             offset: 0,
@@ -131,5 +141,14 @@ final class PersianSearchManager
         );
 
         return $this->expander->expand($searchQuery);
+    }
+
+    private function applicationLocale(): ?string
+    {
+        try {
+            return app()->getLocale();
+        } catch (Throwable) {
+            return null;
+        }
     }
 }

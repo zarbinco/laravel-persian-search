@@ -13,10 +13,14 @@ use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
+use Zarbinco\PersianSearch\Text\PreparedSearchText;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 /**
- * @method static string normalize(string $value)
- * @method static array<int, string> tokens(string $value)
+ * @method static PreparedSearchText prepareText(mixed $value, ?string $locale = null)
+ * @method static string normalize(string $value, ?string $locale = null)
+ * @method static array<int, string> tokens(string $value, ?string $locale = null)
+ * @method static SearchTextPipeline textPipeline()
  * @method static SearchDocument documentFor(Model $model)
  * @method static SearchDocumentBuilder builder()
  * @method static SearchDocumentRecord index(Model $model)
@@ -28,7 +32,7 @@ use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
  * @method static SearchIndexManager indexManager()
  * @method static SearchQueryBuilder search(string $query)
  * @method static QueryExpander queryExpander()
- * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(string $query)
+ * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(string $query, ?string $locale = null)
  * @method static SearchDriver driver()
  */
 final class PersianSearch extends Facade

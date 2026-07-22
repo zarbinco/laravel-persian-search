@@ -4,13 +4,15 @@ namespace Zarbinco\PersianSearch;
 
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Zarbinco\PersianCore\Contracts\PersianSearchNormalizerContract;
 use Zarbinco\PersianSearch\Console\FlushCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
-use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
+use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
+use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
+use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
@@ -18,6 +20,12 @@ use Zarbinco\PersianSearch\Query\DefaultQueryExpander;
 use Zarbinco\PersianSearch\Query\KeyboardLayoutCorrector;
 use Zarbinco\PersianSearch\Query\SynonymExpander;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
+use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
+use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
+use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
+use Zarbinco\PersianSearch\Text\SearchTextValueConverter;
+use Zarbinco\PersianSearch\Text\UnicodeSearchTokenizer;
 
 final class PersianSearchServiceProvider extends ServiceProvider
 {
@@ -25,7 +33,27 @@ final class PersianSearchServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/persian-search.php', 'persian-search');
 
-        $this->app->singleton(SearchNormalizer::class, CoreSearchNormalizer::class);
+        $this->app->singleton(SearchLocaleResolver::class, fn (): SearchLocaleResolver => new SearchLocaleResolver(
+            (string) config('persian-search.index.undefined_locale', 'und'),
+        ));
+        $this->app->singleton(SearchTextValueConverter::class, SearchTextValueConverter::class);
+        $this->app->singleton(SearchTextSanitizer::class, DefaultSearchTextSanitizer::class);
+        $this->app->singleton(SearchTextNormalizer::class, function ($app): SearchTextNormalizer {
+            return new LocaleAwareSearchTextNormalizer(
+                $app->make(PersianSearchNormalizerContract::class),
+                $app->make(SearchLocaleResolver::class),
+            );
+        });
+        $this->app->singleton(SearchTokenizer::class, UnicodeSearchTokenizer::class);
+        $this->app->singleton(SearchTextPipeline::class, function ($app): SearchTextPipeline {
+            return new SearchTextPipeline(
+                $app->make(SearchTextValueConverter::class),
+                $app->make(SearchTextSanitizer::class),
+                $app->make(SearchTextNormalizer::class),
+                $app->make(SearchTokenizer::class),
+                $app->make(SearchLocaleResolver::class),
+            );
+        });
 
         $this->app->singleton(BasicRanker::class, BasicRanker::class);
 
@@ -33,13 +61,13 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(SynonymExpander::class, function ($app): SynonymExpander {
             return new SynonymExpander(
-                $app->make(SearchNormalizer::class),
+                $app->make(SearchTextPipeline::class),
             );
         });
 
         $this->app->singleton(DefaultQueryExpander::class, function ($app): DefaultQueryExpander {
             return new DefaultQueryExpander(
-                $app->make(SearchNormalizer::class),
+                $app->make(SearchTextPipeline::class),
                 $app->make(KeyboardLayoutCorrector::class),
                 $app->make(SynonymExpander::class),
             );
@@ -64,7 +92,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(SearchDocumentBuilder::class, function ($app): SearchDocumentBuilder {
             return new SearchDocumentBuilder(
-                $app->make(SearchNormalizer::class),
+                $app->make(SearchTextPipeline::class),
             );
         });
 
@@ -76,7 +104,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(
-                $app->make(SearchNormalizer::class),
+                $app->make(SearchTextPipeline::class),
                 $app->make(SearchDocumentBuilder::class),
                 $app->make(SearchIndexManager::class),
                 $app->make(SearchDriver::class),

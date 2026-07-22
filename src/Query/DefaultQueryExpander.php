@@ -3,14 +3,14 @@
 namespace Zarbinco\PersianSearch\Query;
 
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Search\QueryCandidate;
 use Zarbinco\PersianSearch\Search\SearchQuery;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final readonly class DefaultQueryExpander implements QueryExpander
 {
     public function __construct(
-        private SearchNormalizer $normalizer,
+        private SearchTextPipeline $pipeline,
         private KeyboardLayoutCorrector $keyboard,
         private SynonymExpander $synonyms,
     ) {}
@@ -47,6 +47,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
             $keyboard = $this->candidateFromText(
                 source: 'keyboard',
                 text: $corrected,
+                locale: 'fa',
                 boost: max(0.01, (float) config('persian-search.query_expansion.keyboard_boost', 0.95)),
             );
 
@@ -56,7 +57,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
         }
 
         if ($original !== null) {
-            foreach ($this->synonyms->expand($original) as $candidate) {
+            foreach ($this->synonyms->expand($original, $query->textLocale) as $candidate) {
                 $this->addCandidate($candidates, $seen, $candidate, $maxCandidates);
             }
         }
@@ -64,7 +65,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
         if ($keyboard !== null) {
             $boost = max(0.01, (float) config('persian-search.query_expansion.keyboard_synonym_boost', 0.80));
 
-            foreach ($this->synonyms->expand($keyboard, 'keyboard_synonym', $boost) as $candidate) {
+            foreach ($this->synonyms->expand($keyboard, 'fa', 'keyboard_synonym', $boost) as $candidate) {
                 $this->addCandidate($candidates, $seen, $candidate, $maxCandidates);
             }
         }
@@ -88,15 +89,15 @@ final readonly class DefaultQueryExpander implements QueryExpander
         return $candidate->isEmpty() ? null : $candidate;
     }
 
-    private function candidateFromText(string $source, string $text, float $boost): ?QueryCandidate
+    private function candidateFromText(string $source, string $text, string $locale, float $boost): ?QueryCandidate
     {
-        $normalized = $this->normalizer->normalize($text);
+        $prepared = $this->pipeline->prepare($text, $locale);
 
         return $this->candidate(
             source: $source,
-            original: $text,
-            normalized: $normalized,
-            tokens: $this->normalizer->tokens($text),
+            original: $prepared->raw,
+            normalized: $prepared->normalized,
+            tokens: $prepared->tokens,
             boost: $boost,
         );
     }

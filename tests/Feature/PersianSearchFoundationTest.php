@@ -7,11 +7,16 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
 use Zarbinco\PersianCore\Facades\Persian;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
-use Zarbinco\PersianSearch\Core\CoreSearchNormalizer;
+use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
+use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
+use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\PersianSearchManager;
 use Zarbinco\PersianSearch\Tests\TestCase;
+use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
+use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
+use Zarbinco\PersianSearch\Text\UnicodeSearchTokenizer;
 
 final class PersianSearchFoundationTest extends TestCase
 {
@@ -26,11 +31,12 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertNull(config('persian-search.keyboard.layouts.fa_to_en'));
     }
 
-    public function test_search_normalizer_contract_resolves_to_core_implementation(): void
+    public function test_text_pipeline_contracts_resolve_to_default_implementations(): void
     {
-        $normalizer = $this->application()->make(SearchNormalizer::class);
-
-        $this->assertInstanceOf(CoreSearchNormalizer::class, $normalizer);
+        $this->assertInstanceOf(DefaultSearchTextSanitizer::class, $this->application()->make(SearchTextSanitizer::class));
+        $this->assertInstanceOf(LocaleAwareSearchTextNormalizer::class, $this->application()->make(SearchTextNormalizer::class));
+        $this->assertInstanceOf(UnicodeSearchTokenizer::class, $this->application()->make(SearchTokenizer::class));
+        $this->assertInstanceOf(SearchTextPipeline::class, $this->application()->make(SearchTextPipeline::class));
     }
 
     public function test_manager_and_facade_delegate_normalization_to_persian_core(): void
@@ -40,8 +46,8 @@ final class PersianSearchFoundationTest extends TestCase
 
         $manager = $this->application()->make(PersianSearchManager::class);
 
-        $this->assertSame($expected, $manager->normalize($value));
-        $this->assertSame($expected, PersianSearch::normalize($value));
+        $this->assertSame($expected, $manager->normalize($value, 'fa'));
+        $this->assertSame($expected, PersianSearch::normalize($value, 'fa'));
     }
 
     public function test_manager_and_facade_delegate_tokenization_to_persian_core(): void
@@ -51,11 +57,11 @@ final class PersianSearchFoundationTest extends TestCase
 
         $manager = $this->application()->make(PersianSearchManager::class);
 
-        $this->assertSame($expected, $manager->tokens($value));
-        $this->assertSame($expected, PersianSearch::tokens($value));
+        $this->assertSame($expected, $manager->tokens($value, 'fa'));
+        $this->assertSame($expected, PersianSearch::tokens($value, 'fa'));
     }
 
-    public function test_no_duplicated_normalizer_classes_exist_and_core_normalizer_delegates(): void
+    public function test_no_duplicated_persian_normalizer_classes_exist_and_pipeline_is_centralized(): void
     {
         $forbiddenNames = [
             'PersianNormalizer',
@@ -81,17 +87,17 @@ final class PersianSearchFoundationTest extends TestCase
             }
         }
 
-        $coreNormalizer = file_get_contents(__DIR__.'/../../src/Core/CoreSearchNormalizer.php');
+        $localeNormalizer = file_get_contents(__DIR__.'/../../src/Text/LocaleAwareSearchTextNormalizer.php');
 
-        $this->assertIsString($coreNormalizer);
-        $this->assertStringContainsString('Persian::search($value)->normalize()', $coreNormalizer);
-        $this->assertStringContainsString('Persian::search($value)->tokens()', $coreNormalizer);
-        $this->assertStringNotContainsString('array_values(Persian::search($value)->tokens())', $coreNormalizer);
+        $this->assertIsString($localeNormalizer);
+        $this->assertStringContainsString('PersianSearchNormalizerContract', $localeNormalizer);
+        $this->assertStringContainsString('$this->persian->normalize($value)', $localeNormalizer);
+        $this->assertStringNotContainsString('Persian::search', $localeNormalizer);
 
         $documentBuilder = file_get_contents(__DIR__.'/../../src/Indexing/SearchDocumentBuilder.php');
 
         $this->assertIsString($documentBuilder);
-        $this->assertStringContainsString('SearchNormalizer', $documentBuilder);
+        $this->assertStringContainsString('SearchTextPipeline', $documentBuilder);
         $this->assertStringNotContainsString('Persian::search', $documentBuilder);
         $this->assertStringNotContainsString('preg_replace', $documentBuilder);
 
@@ -117,7 +123,7 @@ final class PersianSearchFoundationTest extends TestCase
         $queryBuilder = file_get_contents(__DIR__.'/../../src/Search/SearchQueryBuilder.php');
 
         $this->assertIsString($queryBuilder);
-        $this->assertStringContainsString('SearchNormalizer', $queryBuilder);
+        $this->assertStringContainsString('SearchTextPipeline', $queryBuilder);
 
         foreach ([
             __DIR__.'/../../src/Query/DefaultQueryExpander.php',
@@ -126,7 +132,7 @@ final class PersianSearchFoundationTest extends TestCase
             $contents = file_get_contents($path);
 
             $this->assertIsString($contents);
-            $this->assertStringContainsString('SearchNormalizer', $contents);
+            $this->assertStringContainsString('SearchTextPipeline', $contents);
             $this->assertStringNotContainsString('Persian::search', $contents);
             $this->assertStringNotContainsString('preg_replace', $contents);
         }

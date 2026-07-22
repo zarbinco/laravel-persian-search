@@ -2,23 +2,19 @@
 
 namespace Zarbinco\PersianSearch\Indexing;
 
-use BackedEnum;
 use DateTimeInterface;
-use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Enumerable;
 use InvalidArgumentException;
-use Stringable;
 use Throwable;
-use Traversable;
-use UnitEnum;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchableFieldException;
+use Zarbinco\PersianSearch\Text\PreparedSearchText;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final readonly class SearchDocumentBuilder
 {
-    public function __construct(private SearchNormalizer $normalizer) {}
+    public function __construct(private SearchTextPipeline $pipeline) {}
 
     public function build(Model $model): SearchDocument
     {
@@ -36,24 +32,6 @@ final readonly class SearchDocumentBuilder
             throw new InvalidArgumentException('A stable source key requires a persisted model key.');
         }
 
-        $normalizedFields = [];
-
-        foreach ($model->persianSearchableFields() as $declarationKey => $declaration) {
-            $field = $this->fieldName($declarationKey, $declaration);
-            $value = $this->stringValue($this->resolveFieldValue($model, $field));
-
-            if ($value === null) {
-                continue;
-            }
-
-            $normalized = $this->normalizer->normalize($value);
-
-            if ($normalized !== '') {
-                $normalizedFields[] = $normalized;
-            }
-        }
-
-        $title = $model->persianSearchTitle();
         $locale = $model->persianSearchLocale();
 
         if ($locale === null || trim($locale) === '') {
@@ -64,6 +42,29 @@ final readonly class SearchDocumentBuilder
             }
         }
 
+        /** @var array<string, PreparedSearchText> $preparedStrings */
+        $preparedStrings = [];
+        $prepare = function (mixed $value) use (&$preparedStrings, $locale): PreparedSearchText {
+            if (! is_string($value)) {
+                return $this->pipeline->prepare($value, $locale);
+            }
+
+            return $preparedStrings[$value] ??= $this->pipeline->prepare($value, $locale);
+        };
+        $normalizedFields = [];
+
+        foreach ($model->persianSearchableFields() as $declarationKey => $declaration) {
+            $field = $this->fieldName($declarationKey, $declaration);
+            $prepared = $prepare($this->resolveFieldValue($model, $field));
+
+            if (! $prepared->isEmpty()) {
+                $normalizedFields[] = $prepared->normalized;
+            }
+        }
+
+        $title = $model->persianSearchTitle();
+        $preparedTitle = $prepare($title);
+
         return new SearchDocument(
             partition: (string) config('persian-search.index.default_partition', 'default'),
             sourceKey: $model::class.':'.$key,
@@ -72,7 +73,7 @@ final readonly class SearchDocumentBuilder
             locale: $locale,
             title: $title,
             excerpt: null,
-            normalizedTitle: $this->nullableNormalized($title),
+            normalizedTitle: $preparedTitle->normalized === '' ? null : $preparedTitle->normalized,
             normalizedExcerpt: null,
             normalizedKeywords: null,
             normalizedContent: $normalizedFields === [] ? null : implode(' ', $normalizedFields),
@@ -163,77 +164,11 @@ final readonly class SearchDocumentBuilder
         );
     }
 
-    private function stringValue(mixed $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_string($value)) {
-            return trim($value) === '' ? null : $value;
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return (string) $value;
-        }
-
-        if (is_bool($value)) {
-            return $value ? '1' : null;
-        }
-
-        if ($value instanceof BackedEnum) {
-            return (string) $value->value;
-        }
-
-        if ($value instanceof UnitEnum) {
-            return $value->name;
-        }
-
-        if ($value instanceof Stringable) {
-            return $this->stringValue((string) $value);
-        }
-
-        if ($value instanceof Arrayable) {
-            return $this->stringValue($value->toArray());
-        }
-
-        if ($value instanceof Enumerable) {
-            return $this->stringValue($value->all());
-        }
-
-        if ($value instanceof Traversable) {
-            return $this->stringValue(iterator_to_array($value, false));
-        }
-
-        if (is_array($value)) {
-            $parts = [];
-
-            foreach ($value as $item) {
-                $part = $this->stringValue($item);
-
-                if ($part !== null) {
-                    $parts[] = $part;
-                }
-            }
-
-            return $parts === [] ? null : implode(' ', $parts);
-        }
-
-        return null;
-    }
-
     private function modelKey(Model $model): ?string
     {
         $key = $model->getKey();
 
         return is_scalar($key) ? (string) $key : null;
-    }
-
-    private function nullableNormalized(string $value): ?string
-    {
-        $normalized = $this->normalizer->normalize($value);
-
-        return $normalized === '' ? null : $normalized;
     }
 
     private function sourceUpdatedAt(Model $model): ?DateTimeInterface

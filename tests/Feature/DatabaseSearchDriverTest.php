@@ -97,12 +97,12 @@ final class DatabaseSearchDriverTest extends TestCase
 
     public function test_normalized_title_is_preferred_while_raw_title_is_preserved(): void
     {
-        $title = DriverProduct::create(['title' => 'كیكِ شکلاتي', 'description' => 'دسر']);
-        $content = DriverProduct::create(['title' => 'محصول', 'description' => 'كیكِ شکلاتي']);
+        $title = DriverProduct::create(['title' => 'كیكِ شکلاتي', 'description' => 'دسر', 'locale' => 'fa']);
+        $content = DriverProduct::create(['title' => 'محصول', 'description' => 'كیكِ شکلاتي', 'locale' => 'fa']);
         PersianSearch::index($content);
         PersianSearch::index($title);
 
-        $items = PersianSearch::search('کیک شکلاتی')->for(DriverProduct::class)->results()->items();
+        $items = PersianSearch::search('کیک شکلاتی')->for(DriverProduct::class)->locale('fa')->results()->items();
 
         $this->assertCount(2, $items);
         $this->assertTrue($title->is($items[0]->model));

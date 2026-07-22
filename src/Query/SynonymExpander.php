@@ -2,19 +2,19 @@
 
 namespace Zarbinco\PersianSearch\Query;
 
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Search\QueryCandidate;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final readonly class SynonymExpander
 {
     public function __construct(
-        private SearchNormalizer $normalizer,
+        private SearchTextPipeline $pipeline,
     ) {}
 
     /**
      * @return list<QueryCandidate>
      */
-    public function expand(QueryCandidate $candidate, string $source = 'synonym', ?float $boost = null): array
+    public function expand(QueryCandidate $candidate, string $locale, string $source = 'synonym', ?float $boost = null): array
     {
         if (! (bool) config('persian-search.synonyms.enabled', false)) {
             return [];
@@ -31,7 +31,7 @@ final readonly class SynonymExpander
             $candidate->normalized => true,
         ];
 
-        foreach ($this->alternatives() as [$needle, $replacement]) {
+        foreach ($this->alternatives($locale) as [$needle, $replacement]) {
             if (count($expanded) >= $maxCandidates) {
                 break;
             }
@@ -41,7 +41,8 @@ final readonly class SynonymExpander
             }
 
             $text = str_replace($needle, $replacement, $candidate->normalized);
-            $normalized = $this->normalizer->normalize($text);
+            $prepared = $this->pipeline->prepare($text, $locale);
+            $normalized = $prepared->normalized;
 
             if ($normalized === '' || isset($seen[$normalized])) {
                 continue;
@@ -50,9 +51,9 @@ final readonly class SynonymExpander
             $seen[$normalized] = true;
             $expanded[] = new QueryCandidate(
                 source: $source,
-                original: $text,
+                original: $prepared->raw,
                 normalized: $normalized,
-                tokens: $this->normalizer->tokens($normalized),
+                tokens: $prepared->tokens,
                 boost: $boost,
             );
         }
@@ -63,7 +64,7 @@ final readonly class SynonymExpander
     /**
      * @return list<array{0: string, 1: string}>
      */
-    private function alternatives(): array
+    private function alternatives(string $locale): array
     {
         $map = config('persian-search.synonyms.map', []);
 
@@ -80,7 +81,7 @@ final readonly class SynonymExpander
                 continue;
             }
 
-            $normalizedKey = $this->normalizer->normalize($key);
+            $normalizedKey = $this->pipeline->prepare($key, $locale)->normalized;
 
             if ($normalizedKey === '') {
                 continue;
@@ -99,7 +100,7 @@ final readonly class SynonymExpander
                     continue;
                 }
 
-                $normalizedValue = $this->normalizer->normalize($value);
+                $normalizedValue = $this->pipeline->prepare($value, $locale)->normalized;
 
                 if ($normalizedValue === '' || $normalizedValue === $normalizedKey) {
                     continue;

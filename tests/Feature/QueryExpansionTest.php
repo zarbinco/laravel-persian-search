@@ -29,6 +29,14 @@ final class QueryExpansionTest extends TestCase
         $this->assertSame(1.0, $candidates[0]->boost);
     }
 
+    public function test_english_query_expansion_does_not_apply_persian_substitutions(): void
+    {
+        $candidate = PersianSearch::expand('ك MIXED', 'en-US')[0];
+
+        $this->assertSame('ك mixed', $candidate->normalized);
+        $this->assertSame(['ك', 'mixed'], $candidate->tokens);
+    }
+
     public function test_keyboard_layout_corrector_maps_english_keyboard_input_to_persian(): void
     {
         $corrector = app(KeyboardLayoutCorrector::class);

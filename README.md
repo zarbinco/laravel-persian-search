@@ -1,6 +1,6 @@
 # Laravel Persian Search
 
-Laravel Persian Search provides a portable, document-first search index for Laravel applications. Persian normalization and tokenization are delegated to `zarbinco/laravel-persian-core`.
+Laravel Persian Search provides a portable, document-first search index for Laravel applications. Persian normalization is delegated to `zarbinco/laravel-persian-core`.
 
 ## Requirements
 
@@ -17,6 +17,26 @@ php artisan migrate
 ```
 
 The index connection, table, default partition, undefined locale, lifecycle flags, query expansion, limits, and basic ranking settings are configured in `config/persian-search.php`.
+
+## Preparing searchable text
+
+The same locale-aware pipeline is available without an Eloquent model:
+
+```php
+$prepared = PersianSearch::prepareText(
+    value: '<p>كیك شکلاتي</p>',
+    locale: 'fa',
+);
+
+$prepared->raw;        // <p>كیك شکلاتي</p>
+$prepared->sanitized;  // كیك شکلاتي
+$prepared->normalized; // کیک شکلاتی
+$prepared->tokens;     // ['کیک', 'شکلاتی']
+```
+
+Preparation converts supported scalar, backed-enum, `Stringable`, and nested array values; sanitizes HTML; cleans whitespace and invisible characters; normalizes for the locale; and creates ordered, unique Unicode tokens. Unsupported objects, resources, closures, and invalid UTF-8 fail with focused exceptions.
+
+Persian-family locales use Persian Core. English-family and unknown locales use conservative Unicode lowercase and whitespace normalization without Persian substitutions. An explicit locale takes precedence; integration points otherwise use the application locale where appropriate, then the configured `und` fallback.
 
 ## Indexing documents
 
@@ -110,6 +130,8 @@ $products = Product::persianSearch('كیك شکلاتي')->get();
 `SearchResults::models()` contains only successfully hydrated models. Missing Eloquent records do not invalidate document results.
 
 The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type, locale, and partition filters. Query-time synonym and wrong-keyboard candidate expansion remain configurable.
+
+Default text components can be replaced through Laravel's container by binding `SearchTextSanitizer`, `SearchTextNormalizer`, or `SearchTokenizer` before the pipeline is resolved.
 
 ## Commands
 

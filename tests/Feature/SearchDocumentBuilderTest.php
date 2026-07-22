@@ -83,6 +83,31 @@ final class SearchDocumentBuilderTest extends TestCase
         $this->assertInstanceOf(SearchDocument::class, $model->toPersianSearchDocument());
     }
 
+    public function test_html_arrays_and_scalars_are_prepared_without_indexing_non_content(): void
+    {
+        $model = new BuilderProduct(['id' => 11, 'title' => '<b>نمایش خام</b>']);
+        $model->fields = ['content'];
+        $model->setAttribute('content', ['<p>آبمیوه</p><p>پرتقال</p>', '<script>secret</script>', 125, false]);
+
+        $document = app(SearchDocumentBuilder::class)->build($model);
+
+        $this->assertSame('<b>نمایش خام</b>', $document->title);
+        $this->assertSame('نمایش خام', $document->normalizedTitle);
+        $this->assertSame(Persian::search('آبمیوه پرتقال 125 0')->normalize(), $document->normalizedContent);
+        $this->assertStringNotContainsString('<', (string) $document->normalizedContent);
+        $this->assertStringNotContainsString('secret', (string) $document->normalizedContent);
+    }
+
+    public function test_document_hash_changes_when_normalized_searchable_meaning_changes(): void
+    {
+        $model = new BuilderProduct(['id' => 12, 'title' => 'محصول', 'description' => 'اول']);
+        $first = app(SearchDocumentBuilder::class)->build($model);
+        $model->setAttribute('description', 'دوم');
+        $second = app(SearchDocumentBuilder::class)->build($model);
+
+        $this->assertNotSame($first->documentHash, $second->documentHash);
+    }
+
     public function test_non_searchable_models_are_rejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -112,6 +137,11 @@ final class BuilderProduct extends Model implements PersianSearchable
     public function persianSearchMetadata(): array
     {
         return ['route' => 'products.show'];
+    }
+
+    public function persianSearchLocale(): string
+    {
+        return 'fa';
     }
 }
 

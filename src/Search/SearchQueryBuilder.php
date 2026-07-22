@@ -5,9 +5,10 @@ namespace Zarbinco\PersianSearch\Search;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
+use Throwable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
-use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final class SearchQueryBuilder
 {
@@ -26,7 +27,7 @@ final class SearchQueryBuilder
 
     public function __construct(
         private readonly string $query,
-        private readonly SearchNormalizer $normalizer,
+        private readonly SearchTextPipeline $pipeline,
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
     ) {
@@ -136,12 +137,15 @@ final class SearchQueryBuilder
 
     private function queryObject(bool $includeScores): SearchQuery
     {
+        $prepared = $this->pipeline->prepare($this->query, $this->processingLocale());
+
         $query = new SearchQuery(
-            original: $this->query,
-            normalized: $this->normalizer->normalize($this->query),
-            tokens: $this->normalizer->tokens($this->query),
+            original: $prepared->raw,
+            normalized: $prepared->normalized,
+            tokens: $prepared->tokens,
             sourceTypes: $this->sourceTypes,
             locale: $this->locale,
+            textLocale: $prepared->locale,
             partition: $this->partition,
             limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
             offset: $this->offset,
@@ -153,6 +157,19 @@ final class SearchQueryBuilder
         }
 
         return $query->withCandidates($this->expander->expand($query));
+    }
+
+    private function processingLocale(): ?string
+    {
+        if ($this->locale !== null && trim($this->locale) !== '') {
+            return $this->locale;
+        }
+
+        try {
+            return app()->getLocale();
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function validateSourceType(string $sourceType): string
