@@ -22,7 +22,7 @@ Each document has a deterministic SHA-256 hash over meaningful document data. Pa
 
 ## Text preparation
 
-Indexing and query candidates share one ordered pipeline:
+Indexing and generated query variants share one ordered pipeline:
 
 ```text
 raw value → safe string conversion → HTML sanitization → invisible/whitespace cleanup
@@ -39,7 +39,7 @@ Persian-family locales (`fa`, including underscore and hyphen region forms) dele
 
 The tokenizer retains Unicode letters, combining marks, and numbers. It keeps apostrophes inside words, splits hyphenated words and decimals at punctuation, excludes punctuation as tokens, and removes duplicates while preserving first appearance. It applies no stop words, stemming, minimum token length, or token-count limit.
 
-The pipeline depends on the replaceable `SearchTextSanitizer`, `SearchTextNormalizer`, and `SearchTokenizer` contracts registered by the service provider. Document building and original, keyboard-corrected, and synonym query candidates all use this same preparation path.
+The pipeline depends on the replaceable `SearchTextSanitizer`, `SearchTextNormalizer`, and `SearchTokenizer` contracts registered by the service provider. Document building and generated keyboard and synonym variants use this preparation path; an original variant reuses its already-approved processed query without normalizing it again.
 
 ## Query processing
 
@@ -64,7 +64,19 @@ The default policy requires two normalized Unicode code points, accepts at most 
 
 The complete tokenizer output remains in `tokens`. `searchableTokens` removes short tokens and applies the maximum token count without mutating the complete list. It does not apply stop words, stemming, synonyms, or keyboard correction.
 
-Fluent query processing is lazy, so the final effective locale is authoritative and repeated execution has no stale processed state. A null builder locale uses the application locale; an explicitly empty or whitespace-only locale resolves to `und`; and a non-empty explicit locale is retained. The resolved processed locale is used consistently for normalization, expansion context, query diagnostics, and exact database locale filtering. No locale-family fallback or all-locales mode is implied. Non-ready queries are converted directly to empty `SearchResults` by the builder: expansion, driver access, ranking, search-document SQL, and model hydration are skipped. Ready original candidates reuse the processed sanitized, normalized, and searchable-token values; generated keyboard and synonym candidates retain their existing preparation path.
+Fluent query processing is lazy, so the final effective locale is authoritative and repeated execution has no stale processed state. A null builder locale uses the application locale; an explicitly empty or whitespace-only locale resolves to `und`; and a non-empty explicit locale is retained. Non-ready queries are converted directly to empty `SearchResults` by the builder: expansion, driver access, ranking, search-document SQL, and model hydration are skipped.
+
+## Query variants
+
+`QueryExpander` accepts only a ready `ProcessedSearchQuery` and returns a bounded `QueryVariantCollection`. Generation order and default precedence are original (`1000`), keyboard (`800`), synonym (`600`), and keyboard-synonym (`400`). Each immutable variant carries normalized query text, ordered unique searchable tokens, locale, source enum, priority, deterministic fingerprint, parent fingerprint, and typed correction or synonym provenance.
+
+The collection deduplicates by fingerprint and by normalized query plus locale. Higher priority replaces lower provenance, equal priority keeps the first occurrence, different locales stay distinct, and the original can never be displaced by generated provenance. The original counts toward `maximum_variants`; generation stops at the bound without recursive synonym expansion or synonym Cartesian products. Synonym expansion returns a fresh lazy generator for each call. The expander does not invoke it when earlier variants already fill the collection and stops consuming it immediately after the final available slot, so the bound limits generated work as well as retained output.
+
+English-to-Persian is the only keyboard direction. English-family input uses one authoritative Windows Persian keyboard map, including backslash to `پ`. Base and Shift states are mapped case-sensitively, including uppercase letters, shifted punctuation, and multi-character output such as `R → ریال`. The already-sanitized physical input is retained for correction before English normalization can collapse Shift state. A generic configured `en` source accepts English region locales; a configured region locale is exact. Corrected output is prepared with the configured Persian target locale. No reverse layout correction or transliteration is claimed.
+
+Synonym dictionaries are normalized once by a typed factory. Dictionaries are exact-locale and one-way. Rules match complete token sequences, preserve configured rule/replacement order and token position order, and create one replacement per variant. Each generator invocation maintains isolated deduplication state: repeated candidate token sequences are skipped before text preparation, then repeated normalized query-locale outputs are skipped before fingerprint and DTO creation. The first valid configured provenance wins. Empty terms, non-string replacements, malformed nesting, and normalized self-replacements fail with a focused configuration exception.
+
+The database driver executes each distinct variant against that variant's exact locale. Results are not bridged to localized counterparts. One stored record matching several variants is merged by variant priority, then score, with stable first occurrence as the final tie-break. Variant priority is provenance precedence, not ranking weight. `SearchResult::matchedVariant` is authoritative; `candidateSource`, `matchedQuery`, and `matchedLocale` are derived conveniences.
 
 ## Results and hydration
 

@@ -118,6 +118,15 @@ final class SearchQueryBuilder
         return $this->expand(false);
     }
 
+    public function variants(): QueryVariantCollection
+    {
+        $processed = $this->processor->process($this->query, $this->processingLocale());
+
+        return $this->expansionEnabled
+            ? $this->expander->expand($processed)
+            : $this->expander->original($processed);
+    }
+
     public function results(): SearchResults
     {
         $query = $this->queryObject(true);
@@ -149,6 +158,13 @@ final class SearchQueryBuilder
     private function queryObject(bool $includeScores): SearchQuery
     {
         $processed = $this->processor->process($this->query, $this->processingLocale());
+        if (! $processed->isSearchable()) {
+            $variants = new QueryVariantCollection(1);
+        } else {
+            $variants = $this->expansionEnabled
+                ? $this->expander->expand($processed)
+                : $this->expander->original($processed);
+        }
 
         $query = new SearchQuery(
             original: $processed->sanitizedQuery,
@@ -156,21 +172,15 @@ final class SearchQueryBuilder
             tokens: $processed->searchableTokens,
             sourceTypes: $this->sourceTypes,
             locale: $processed->locale,
-            textLocale: $processed->locale,
             partition: $this->partition,
             limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
             offset: $this->offset,
             includeScores: $includeScores,
             processedQuery: $processed,
+            variants: $variants,
         );
 
-        if (! $processed->isSearchable()
-            || ! $this->expansionEnabled
-            || ! (bool) config('persian-search.query_expansion.enabled', true)) {
-            return $query;
-        }
-
-        return $query->withCandidates($this->expander->expand($query));
+        return $query;
     }
 
     private function processingLocale(): ?string

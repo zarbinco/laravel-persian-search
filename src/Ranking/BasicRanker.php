@@ -2,28 +2,27 @@
 
 namespace Zarbinco\PersianSearch\Ranking;
 
+use LogicException;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
-use Zarbinco\PersianSearch\Search\QueryCandidate;
+use Zarbinco\PersianSearch\Search\QueryVariant;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 
 final class BasicRanker
 {
-    /** @return array<string, mixed> */
+    /** @return array{base_score: float, score: float, matched_tokens: list<string>} */
     public function score(SearchDocumentRecord $record, SearchQuery $query): array
     {
-        return $this->scoreCandidate($record, new QueryCandidate(
-            source: 'original',
-            original: $query->original,
-            normalized: $query->normalized,
-            tokens: $query->tokens,
-            boost: 1.0,
-        ));
+        $original = $query->variants()->original();
+
+        if ($original === null) {
+            throw new LogicException('A searchable query must contain an original variant.');
+        }
+
+        return $this->scoreVariant($record, $original);
     }
 
-    /**
-     * @return array{base_score: float, score: float, matched_tokens: list<string>, candidate_source: string, matched_query: string}
-     */
-    public function scoreCandidate(SearchDocumentRecord $record, QueryCandidate $candidate): array
+    /** @return array{base_score: float, score: float, matched_tokens: list<string>} */
+    public function scoreVariant(SearchDocumentRecord $record, QueryVariant $variant): array
     {
         $score = 0.0;
         $matched = [];
@@ -38,21 +37,15 @@ final class BasicRanker
         $anyToken = (float) config('persian-search.ranking.any_token', 20);
         $titleBoost = max(0.0, (float) config('persian-search.ranking.title_boost', 2.0));
 
-        if ($candidate->normalized !== '') {
-            if (str_contains($title, $candidate->normalized)) {
-                $score += $exactPhrase * $titleBoost;
-            }
-
-            if (str_contains($other, $candidate->normalized)) {
-                $score += $exactPhrase;
-            }
+        if (str_contains($title, $variant->query)) {
+            $score += $exactPhrase * $titleBoost;
         }
 
-        foreach ($candidate->tokens as $token) {
-            if ($token === '') {
-                continue;
-            }
+        if (str_contains($other, $variant->query)) {
+            $score += $exactPhrase;
+        }
 
+        foreach ($variant->tokens as $token) {
             $found = false;
 
             if (str_contains($other, $token)) {
@@ -70,20 +63,12 @@ final class BasicRanker
             }
         }
 
-        $queryTokens = array_values(array_unique(array_filter($candidate->tokens, static fn (string $token): bool => $token !== '')));
-
-        if ($queryTokens !== [] && count($matched) === count($queryTokens)) {
+        if ($variant->tokens !== [] && count($matched) === count(array_unique($variant->tokens))) {
             $score += $allTokens;
         }
 
         $score += max(0, $record->priority);
 
-        return [
-            'base_score' => $score,
-            'score' => $score * $candidate->boost,
-            'matched_tokens' => array_values($matched),
-            'candidate_source' => $candidate->source,
-            'matched_query' => $candidate->normalized,
-        ];
+        return ['base_score' => $score, 'score' => $score, 'matched_tokens' => array_values($matched)];
     }
 }

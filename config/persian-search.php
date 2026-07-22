@@ -37,28 +37,28 @@ return [
         'maximum_length_policy' => 'truncate',
     ],
 
-    'query_expansion' => [
-        'enabled' => true,
-        'max_candidates' => 25,
-        'original_boost' => 1.0,
-        'keyboard_boost' => 0.95,
-        'keyboard_synonym_boost' => 0.80,
+    'variants' => [
+        'maximum_variants' => 20,
+        'priorities' => [
+            'original' => 1000,
+            'keyboard' => 800,
+            'synonym' => 600,
+            'keyboard_synonym' => 400,
+        ],
     ],
 
     'synonyms' => [
         'enabled' => false,
-        'bidirectional' => true,
-        'max_candidates' => 20,
-        'boost' => 0.85,
-        'map' => [],
+        'locales' => [],
     ],
 
     'keyboard' => [
         'enabled' => true,
-        'wrong_layout_correction' => true,
-        'layouts' => [
-            'en_to_fa' => true,
+        'minimum_length' => 2,
+        'en_to_fa' => [
+            'enabled' => true,
+            'source_locale' => 'en',
+            'target_locale' => 'fa',
         ],
-        'min_query_length' => 2,
     ],
 ];

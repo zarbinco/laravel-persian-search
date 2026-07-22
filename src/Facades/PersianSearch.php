@@ -37,7 +37,7 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static SearchQueryBuilder query(mixed $query)
  * @method static SearchQueryBuilder search(mixed $query)
  * @method static QueryExpander queryExpander()
- * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(mixed $query, ?string $locale = null)
+ * @method static \Zarbinco\PersianSearch\Search\QueryVariantCollection expandQuery(\Zarbinco\PersianSearch\Search\ProcessedSearchQuery $query)
  * @method static SearchDriver driver()
  */
 final class PersianSearch extends Facade

@@ -10,7 +10,10 @@ use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
-use Zarbinco\PersianSearch\Search\QueryCandidate;
+use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
+use Zarbinco\PersianSearch\Search\QueryVariant;
+use Zarbinco\PersianSearch\Search\QueryVariantCollection;
+use Zarbinco\PersianSearch\Search\QueryVariantSource;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
@@ -185,7 +188,7 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
         $this->assertSame('en', $results->processedQuery->locale);
         $this->assertSame($results->processedQuery->locale, $results->query->locale);
         $this->assertSame('ORANGE', $results->query->original);
-        $this->assertSame('orange', $results->query->candidates()[0]->normalized);
+        $this->assertSame('orange', $results->query->variants()->all()[0]->query);
         $this->assertCount(1, $results->items());
         $this->assertSame('en', $results->items()[0]->record->locale);
     }
@@ -251,8 +254,6 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
             $builder->results();
             $this->assertNotNull($recorder->expandedQuery);
             $this->assertSame($expected, $recorder->expandedQuery->locale);
-            $this->assertSame($recorder->expandedQuery->processedQuery->locale, $recorder->expandedQuery->locale);
-            $this->assertSame($recorder->expandedQuery->processedQuery->locale, $recorder->expandedQuery->textLocale);
         }
     }
 
@@ -262,21 +263,19 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
         $recorder = new QueryProcessingRecorder;
         app()->instance(QueryExpander::class, new RecordingQueryExpander($recorder));
 
-        PersianSearch::expand('orange', '');
+        PersianSearch::expandQuery(PersianSearch::processQuery('orange', ''));
 
         $this->assertNotNull($recorder->expandedQuery);
         $this->assertSame('und', $recorder->expandedQuery->locale);
-        $this->assertSame($recorder->expandedQuery->processedQuery->locale, $recorder->expandedQuery->locale);
-        $this->assertSame($recorder->expandedQuery->processedQuery->locale, $recorder->expandedQuery->textLocale);
     }
 
     public function test_original_expansion_candidate_uses_processed_normalized_query(): void
     {
         $processed = PersianSearch::processQuery('  كیكِ شکلاتي  ', 'fa');
-        $candidates = PersianSearch::expand('  كیكِ شکلاتي  ', 'fa');
+        $variants = PersianSearch::expandQuery($processed);
 
-        $this->assertSame($processed->normalizedQuery, $candidates[0]->normalized);
-        $this->assertSame($processed->searchableTokens, $candidates[0]->tokens);
+        $this->assertSame($processed->normalizedQuery, $variants->all()[0]->query);
+        $this->assertSame($processed->searchableTokens, $variants->all()[0]->tokens);
     }
 
     private function migrateSearchDocuments(): void
@@ -320,7 +319,7 @@ final class QueryProcessingRecorder
 
     public int $expanderCalls = 0;
 
-    public ?SearchQuery $expandedQuery = null;
+    public ?ProcessedSearchQuery $expandedQuery = null;
 }
 
 final readonly class RecordingSearchDriver implements SearchDriver
@@ -339,12 +338,30 @@ final readonly class RecordingQueryExpander implements QueryExpander
 {
     public function __construct(private QueryProcessingRecorder $recorder) {}
 
-    public function expand(SearchQuery $query): array
+    public function expand(ProcessedSearchQuery $query): QueryVariantCollection
     {
         $this->recorder->expanderCalls++;
         $this->recorder->expandedQuery = $query;
 
-        return [new QueryCandidate('original', $query->original, $query->normalized, $query->tokens, 1.0)];
+        return $this->original($query);
+    }
+
+    public function original(ProcessedSearchQuery $query): QueryVariantCollection
+    {
+        $variants = new QueryVariantCollection(1);
+
+        if ($query->isSearchable()) {
+            $variants = $variants->with(new QueryVariant(
+                query: $query->normalizedQuery,
+                locale: $query->locale,
+                tokens: $query->searchableTokens,
+                source: QueryVariantSource::Original,
+                priority: 1000,
+                fingerprint: hash('sha256', $query->locale."\0".$query->normalizedQuery),
+            ));
+        }
+
+        return $variants;
     }
 }
 

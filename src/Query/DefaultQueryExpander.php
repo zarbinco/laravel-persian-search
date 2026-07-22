@@ -3,120 +3,106 @@
 namespace Zarbinco\PersianSearch\Query;
 
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
-use Zarbinco\PersianSearch\Search\QueryCandidate;
-use Zarbinco\PersianSearch\Search\SearchQuery;
-use Zarbinco\PersianSearch\Text\SearchTextPipeline;
+use Zarbinco\PersianSearch\Contracts\SynonymExpander;
+use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
+use Zarbinco\PersianSearch\Search\QueryVariant;
+use Zarbinco\PersianSearch\Search\QueryVariantCollection;
+use Zarbinco\PersianSearch\Search\QueryVariantSource;
 
 final readonly class DefaultQueryExpander implements QueryExpander
 {
     public function __construct(
-        private SearchTextPipeline $pipeline,
+        private QueryVariantPolicy $policy,
         private KeyboardLayoutCorrector $keyboard,
         private SynonymExpander $synonyms,
     ) {}
 
-    /**
-     * @return list<QueryCandidate>
-     */
-    public function expand(SearchQuery $query): array
+    public function original(ProcessedSearchQuery $query): QueryVariantCollection
     {
-        $maxCandidates = max(1, (int) config('persian-search.query_expansion.max_candidates', 25));
-        $candidates = [];
-        $seen = [];
+        $variants = new QueryVariantCollection($this->policy->maximumVariants);
 
-        $original = $this->candidate(
-            source: 'original',
-            original: $query->original,
-            normalized: $query->normalized,
-            tokens: $query->tokens,
-            boost: max(0.01, (float) config('persian-search.query_expansion.original_boost', 1.0)),
-        );
-
-        if ($original !== null) {
-            $this->addCandidate($candidates, $seen, $original, $maxCandidates);
+        if (! $query->isSearchable()) {
+            return $variants;
         }
 
-        if (! (bool) config('persian-search.query_expansion.enabled', true)) {
-            return $candidates;
+        return $variants->with(new QueryVariant(
+            query: $query->normalizedQuery,
+            locale: $query->locale,
+            tokens: $query->searchableTokens,
+            source: QueryVariantSource::Original,
+            priority: $this->policy->priority(QueryVariantSource::Original),
+            fingerprint: $this->fingerprint(QueryVariantSource::Original, $query->normalizedQuery, $query->locale),
+        ));
+    }
+
+    public function expand(ProcessedSearchQuery $query): QueryVariantCollection
+    {
+        $variants = $this->original($query);
+        $original = $variants->original();
+
+        if ($original === null) {
+            return $variants;
+        }
+
+        if ($variants->isFull()) {
+            return $variants;
         }
 
         $keyboard = null;
-        $corrected = $this->keyboard->correct($query->original);
+        $correction = $this->keyboard->correct($original, $query->sanitizedQuery);
 
-        if ($corrected !== null) {
-            $keyboard = $this->candidateFromText(
-                source: 'keyboard',
-                text: $corrected,
-                locale: 'fa',
-                boost: max(0.01, (float) config('persian-search.query_expansion.keyboard_boost', 0.95)),
+        if ($correction !== null) {
+            $keyboard = new QueryVariant(
+                query: $correction->correctedQuery,
+                locale: $correction->targetLocale,
+                tokens: $correction->tokens,
+                source: QueryVariantSource::Keyboard,
+                priority: $this->policy->priority(QueryVariantSource::Keyboard),
+                fingerprint: $this->fingerprint(QueryVariantSource::Keyboard, $correction->correctedQuery, $correction->targetLocale, $original->fingerprint, $correction->fingerprint),
+                parentFingerprint: $original->fingerprint,
+                keyboardCorrection: $correction,
             );
-
-            if ($keyboard !== null) {
-                $this->addCandidate($candidates, $seen, $keyboard, $maxCandidates);
-            }
+            $variants = $variants->with($keyboard);
         }
 
-        if ($original !== null) {
-            foreach ($this->synonyms->expand($original, $query->textLocale) as $candidate) {
-                $this->addCandidate($candidates, $seen, $candidate, $maxCandidates);
-            }
-        }
+        $variants = $this->addSynonyms($variants, $original, QueryVariantSource::Synonym);
 
         if ($keyboard !== null) {
-            $boost = max(0.01, (float) config('persian-search.query_expansion.keyboard_synonym_boost', 0.80));
+            $variants = $this->addSynonyms($variants, $keyboard, QueryVariantSource::KeyboardSynonym);
+        }
 
-            foreach ($this->synonyms->expand($keyboard, 'fa', 'keyboard_synonym', $boost) as $candidate) {
-                $this->addCandidate($candidates, $seen, $candidate, $maxCandidates);
+        return $variants;
+    }
+
+    private function addSynonyms(QueryVariantCollection $variants, QueryVariant $parent, QueryVariantSource $source): QueryVariantCollection
+    {
+        if ($variants->isFull()) {
+            return $variants;
+        }
+
+        foreach ($this->synonyms->expand($parent) as $expansion) {
+            $variants = $variants->with(new QueryVariant(
+                query: $expansion->query,
+                locale: $expansion->locale,
+                tokens: $expansion->tokens,
+                source: $source,
+                priority: $this->policy->priority($source),
+                fingerprint: $this->fingerprint($source, $expansion->query, $expansion->locale, $parent->fingerprint, $expansion->fingerprint),
+                parentFingerprint: $parent->fingerprint,
+                keyboardCorrection: $parent->keyboardCorrection,
+                appliedSynonyms: [...$parent->appliedSynonyms, $expansion],
+            ));
+
+            if ($variants->isFull()) {
+                return $variants;
             }
         }
 
-        return $candidates;
+        return $variants;
     }
 
-    /**
-     * @param  array<int, string>  $tokens
-     */
-    private function candidate(string $source, string $original, string $normalized, array $tokens, float $boost): ?QueryCandidate
+    private function fingerprint(QueryVariantSource $source, string $query, string $locale, ?string $parent = null, ?string $operation = null): string
     {
-        $candidate = new QueryCandidate(
-            source: $source,
-            original: $original,
-            normalized: $normalized,
-            tokens: $tokens,
-            boost: $boost,
-        );
-
-        return $candidate->isEmpty() ? null : $candidate;
-    }
-
-    private function candidateFromText(string $source, string $text, string $locale, float $boost): ?QueryCandidate
-    {
-        $prepared = $this->pipeline->prepare($text, $locale);
-
-        return $this->candidate(
-            source: $source,
-            original: $prepared->raw,
-            normalized: $prepared->normalized,
-            tokens: $prepared->tokens,
-            boost: $boost,
-        );
-    }
-
-    /**
-     * @param  list<QueryCandidate>  $candidates
-     * @param  array<string, bool>  $seen
-     */
-    private function addCandidate(array &$candidates, array &$seen, QueryCandidate $candidate, int $maxCandidates): void
-    {
-        if (count($candidates) >= $maxCandidates || $candidate->isEmpty()) {
-            return;
-        }
-
-        if (isset($seen[$candidate->normalized])) {
-            return;
-        }
-
-        $seen[$candidate->normalized] = true;
-        $candidates[] = $candidate;
+        return hash('sha256', implode("\0", [$source->value, $query, $locale, $parent ?? '', $operation ?? '']));
     }
 }

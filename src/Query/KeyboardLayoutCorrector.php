@@ -2,31 +2,41 @@
 
 namespace Zarbinco\PersianSearch\Query;
 
-final class KeyboardLayoutCorrector
+use Zarbinco\PersianSearch\Search\QueryVariant;
+use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
+
+final readonly class KeyboardLayoutCorrector
 {
-    public function correct(string $query): ?string
+    public function __construct(
+        private KeyboardCorrectionPolicy $policy,
+        private WindowsPersianKeyboardMap $map,
+        private SearchTextPipeline $pipeline,
+        private SearchLocaleResolver $locales,
+    ) {}
+
+    public function correct(QueryVariant $variant, ?string $physicalInput = null): ?KeyboardCorrection
     {
-        if (! (bool) config('persian-search.keyboard.enabled', true)) {
+        if (! $this->policy->enabled || ! $this->policy->englishToPersianEnabled) {
             return null;
         }
 
-        if (! (bool) config('persian-search.keyboard.wrong_layout_correction', true)) {
+        if (! $this->policy->supportsSourceLocale($variant->locale, $this->locales)) {
             return null;
         }
 
-        if (! (bool) config('persian-search.keyboard.layouts.en_to_fa', true)) {
-            return null;
-        }
+        $physicalInput ??= $variant->query;
 
-        if ($this->length($query) < max(1, (int) config('persian-search.keyboard.min_query_length', 2))) {
+        if ($this->length($physicalInput) < $this->policy->minimumLength) {
             return null;
         }
 
         $corrected = '';
         $changed = false;
+        $map = $this->map->map();
 
-        foreach ($this->characters($query) as $character) {
-            $mapped = $this->enToFaMap()[strtolower($character)] ?? null;
+        foreach ($this->characters($physicalInput) as $character) {
+            $mapped = $map[$character] ?? null;
 
             if ($mapped === null) {
                 $corrected .= $character;
@@ -38,53 +48,35 @@ final class KeyboardLayoutCorrector
             $changed = $changed || $mapped !== $character;
         }
 
-        if (! $changed || trim($corrected) === '' || $corrected === $query) {
+        if (! $changed || trim($corrected) === '' || $corrected === $physicalInput) {
             return null;
         }
 
-        return $corrected;
-    }
+        $prepared = $this->pipeline->prepare($corrected, $this->policy->targetLocale);
 
-    /**
-     * @return array<string, string>
-     */
-    private function enToFaMap(): array
-    {
-        return [
-            'q' => 'ض',
-            'w' => 'ص',
-            'e' => 'ث',
-            'r' => 'ق',
-            't' => 'ف',
-            'y' => 'غ',
-            'u' => 'ع',
-            'i' => 'ه',
-            'o' => 'خ',
-            'p' => 'ح',
-            '[' => 'ج',
-            ']' => 'چ',
-            'a' => 'ش',
-            's' => 'س',
-            'd' => 'ی',
-            'f' => 'ب',
-            'g' => 'ل',
-            'h' => 'ا',
-            'j' => 'ت',
-            'k' => 'ن',
-            'l' => 'م',
-            ';' => 'ک',
-            "'" => 'گ',
-            'z' => 'ظ',
-            'x' => 'ط',
-            'c' => 'ز',
-            'v' => 'ر',
-            'b' => 'ذ',
-            'n' => 'د',
-            'm' => 'پ',
-            ',' => 'و',
-            '.' => '.',
-            '/' => '/',
-        ];
+        if ($prepared->normalized === '' || $prepared->tokens === []
+            || preg_match('/[\p{L}\p{N}]/u', $prepared->normalized) !== 1) {
+            return null;
+        }
+
+        $fingerprint = hash('sha256', implode("\0", [
+            KeyboardCorrectionDirection::EnglishToPersian->value,
+            $physicalInput,
+            $prepared->normalized,
+            $variant->locale,
+            $prepared->locale,
+        ]));
+
+        return new KeyboardCorrection(
+            originalQuery: $physicalInput,
+            correctedQuery: $prepared->normalized,
+            tokens: $prepared->tokens,
+            sourceLocale: $variant->locale,
+            targetLocale: $prepared->locale,
+            direction: KeyboardCorrectionDirection::EnglishToPersian,
+            meaningful: true,
+            fingerprint: $fingerprint,
+        );
     }
 
     private function length(string $query): int

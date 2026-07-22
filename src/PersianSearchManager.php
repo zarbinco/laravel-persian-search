@@ -15,8 +15,7 @@ use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
-use Zarbinco\PersianSearch\Search\QueryCandidate;
-use Zarbinco\PersianSearch\Search\SearchQuery;
+use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Text\PreparedSearchText;
@@ -142,32 +141,9 @@ final class PersianSearchManager
         return $this->query($query);
     }
 
-    /**
-     * @return list<QueryCandidate>
-     */
-    public function expand(mixed $query, ?string $locale = null): array
+    public function expandQuery(ProcessedSearchQuery $query): QueryVariantCollection
     {
-        $processed = $this->processQuery($query, $locale);
-
-        if (! $processed->isSearchable()) {
-            return [];
-        }
-
-        $searchQuery = new SearchQuery(
-            original: $processed->sanitizedQuery,
-            normalized: $processed->normalizedQuery,
-            tokens: $processed->searchableTokens,
-            sourceTypes: [],
-            locale: $processed->locale,
-            textLocale: $processed->locale,
-            partition: (string) config('persian-search.index.default_partition', 'default'),
-            limit: (int) config('persian-search.search.default_limit', 20),
-            offset: 0,
-            includeScores: false,
-            processedQuery: $processed,
-        );
-
-        return $this->expander->expand($searchQuery);
+        return $this->expander->expand($query);
     }
 
     private function applicationLocale(): ?string

@@ -2,13 +2,12 @@
 
 namespace Zarbinco\PersianSearch\Contracts;
 
-use Zarbinco\PersianSearch\Search\QueryCandidate;
-use Zarbinco\PersianSearch\Search\SearchQuery;
+use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
+use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 
 interface QueryExpander
 {
-    /**
-     * @return list<QueryCandidate>
-     */
-    public function expand(SearchQuery $query): array;
+    public function expand(ProcessedSearchQuery $query): QueryVariantCollection;
+
+    public function original(ProcessedSearchQuery $query): QueryVariantCollection;
 }

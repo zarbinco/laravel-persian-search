@@ -71,6 +71,43 @@ Query policy defaults are configured in `config/persian-search.php`:
 
 Lengths count Unicode code points rather than bytes or visual grapheme clusters. Truncation occurs before sanitization and normalization. The complete `tokens` list remains diagnostic; `searchableTokens` applies minimum token length and then keeps the configured number of first eligible tokens. Invalid policy configuration throws when query processing is first resolved.
 
+## Query variants
+
+Ready processed queries expand deterministically into typed variants: original, English-to-Persian keyboard correction, synonyms from the original, then synonyms from the keyboard variant. The defaults assign priorities `1000`, `800`, `600`, and `400`, respectively, and keep at most 20 distinct query-locale pairs. Priority selects provenance when variants collide; it is not a document-score multiplier.
+
+```php
+$processed = PersianSearch::processQuery('\\vjrhg', 'en');
+$variants = PersianSearch::expandQuery($processed);
+
+$variants->all()[0]->query;  // \vjrhg, locale en, source original
+$variants->all()[1]->query;  // پرتقال, locale fa, source keyboard
+
+$sameView = PersianSearch::query('\\vjrhg')->locale('en')->variants();
+```
+
+Only `en_to_fa` keyboard correction is implemented. It follows the Windows Persian keyboard layout and handles base keys, uppercase Shift keys, and shifted punctuation as distinct physical inputs. Its authoritative map includes `\\ → پ`, `m → ئ`, `M → ء`, `c → ز`, and `C → ژ`; unmapped characters are retained before corrected text is normalized by the Persian text pipeline. Persian-to-English correction is intentionally not advertised.
+
+Synonyms are disabled by default, exact-locale, token-boundary-aware, and one-way:
+
+```php
+'synonyms' => [
+    'enabled' => true,
+    'locales' => [
+        'fa' => [
+            'آبمیوه' => ['نوشیدنی میوه', 'جویس'],
+            'پرتقال' => ['نارنج'],
+        ],
+        'en' => [
+            'juice' => ['fruit drink'],
+        ],
+    ],
+],
+```
+
+Single- and multi-token sources replace complete normalized token sequences, never substrings inside a word. Each generated variant applies one configured replacement, so expansion does not recurse or form a Cartesian product.
+
+Synonym expansions are yielded lazily in configured rule, replacement, and token-position order. Duplicate candidate token sequences are skipped before normalization, and duplicate normalized query-locale outputs are yielded once with first-configured provenance. `variants.maximum_variants` bounds both retained variants and generated synonym work: expansion is not invoked when earlier variants fill the collection, and generator consumption stops as soon as the final slot is filled.
+
 ## Indexing documents
 
 A document is independent of Eloquent and has a stable identity made from its partition, source key, and locale:
@@ -162,7 +199,9 @@ $products = Product::persianSearch('كیك شکلاتي')->get();
 
 `SearchResults::models()` contains only successfully hydrated models. Missing Eloquent records do not invalidate document results.
 
-The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type, locale, and partition filters. Query-time synonym and wrong-keyboard candidate expansion remain configurable.
+The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type and partition filters. Each query variant is searched using its own exact locale. A corrected English-layout query can therefore return a Persian document directly; localized counterpart resolution is not performed.
+
+Each `SearchResult` exposes its typed `matchedVariant`. The convenience fields `candidateSource`, `matchedQuery`, and `matchedLocale` are derived from that object. If one stored document matches multiple variants, the driver keeps one result using variant priority first, score second, and stable variant order for ties.
 
 The fluent `query()` and existing `search()` alias process lazily at execution time, so the final effective locale is used regardless of builder call order. The query processor, expansion context, diagnostics, and database filter all receive that same resolved locale. Non-searchable model queries return an empty collection without accessing the search table.
 

@@ -28,7 +28,10 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertNull(config('persian-search.normalizer'));
         $this->assertNull(config('persian-search.index.queue'));
         $this->assertNull(config('persian-search.database.max_tokens'));
-        $this->assertNull(config('persian-search.keyboard.layouts.fa_to_en'));
+        $this->assertNull(config('persian-search.keyboard.fa_to_en'));
+        $this->assertSame(20, config('persian-search.variants.maximum_variants'));
+        $packageConfig = require __DIR__.'/../../config/persian-search.php';
+        $this->assertSame('fa', $packageConfig['keyboard']['en_to_fa']['target_locale']);
         $this->assertSame(2, config('persian-search.query.minimum_length'));
         $this->assertSame(200, config('persian-search.query.maximum_length'));
         $this->assertSame(1, config('persian-search.query.minimum_token_length'));
@@ -86,7 +89,7 @@ final class PersianSearchFoundationTest extends TestCase
                 $this->assertStringNotContainsString("class {$name}", $contents);
             }
 
-            if ($file->getBasename('.php') !== 'KeyboardLayoutCorrector') {
+            if ($file->getBasename('.php') !== 'WindowsPersianKeyboardMap') {
                 $this->assertStringNotContainsString("'q' => 'ض'", $contents);
                 $this->assertStringNotContainsString("';' => 'ک'", $contents);
             }
@@ -131,10 +134,7 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertStringContainsString('SearchQueryProcessor', $queryBuilder);
         $this->assertStringNotContainsString('SearchTextPipeline', $queryBuilder);
 
-        foreach ([
-            __DIR__.'/../../src/Query/DefaultQueryExpander.php',
-            __DIR__.'/../../src/Query/SynonymExpander.php',
-        ] as $path) {
+        foreach ([__DIR__.'/../../src/Query/TokenAwareSynonymExpander.php'] as $path) {
             $contents = file_get_contents($path);
 
             $this->assertIsString($contents);

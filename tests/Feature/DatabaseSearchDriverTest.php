@@ -3,6 +3,7 @@
 namespace Zarbinco\PersianSearch\Tests\Feature;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Zarbinco\PersianCore\Facades\Persian;
@@ -111,28 +112,129 @@ final class DatabaseSearchDriverTest extends TestCase
         $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $items[0]->record->normalized_title);
     }
 
-    public function test_query_expansion_still_matches_keyboard_and_synonym_candidates(): void
+    public function test_query_expansion_matches_keyboard_and_synonym_variants(): void
     {
-        $bag = DriverProduct::create(['title' => 'کیف چرمی']);
-        $phone = DriverProduct::create(['title' => 'گوشی سامسونگ']);
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.locales', ['fa' => ['موبایل' => ['گوشی']]]);
+        $bag = DriverProduct::create(['title' => 'کیف چرمی', 'locale' => 'fa']);
+        $phone = DriverProduct::create(['title' => 'گوشی سامسونگ', 'locale' => 'fa']);
         PersianSearch::index($bag);
         PersianSearch::index($phone);
 
-        $keyboard = DriverProduct::persianSearch(';dt')->results()->items()[0];
+        $keyboard = DriverProduct::persianSearch(';dt')->locale('en')->results()->items()[0];
         $this->assertTrue($bag->is($keyboard->model));
         $this->assertSame('keyboard', $keyboard->candidateSource);
 
-        config()->set('persian-search.synonyms.enabled', true);
-        config()->set('persian-search.synonyms.map', ['گوشی' => ['موبایل']]);
-        $synonym = DriverProduct::persianSearch('موبایل سامسونگ')->results()->items()[0];
+        $synonym = DriverProduct::persianSearch('موبایل')->locale('fa')->results()->items()[0];
         $this->assertTrue($phone->is($synonym->model));
         $this->assertSame('synonym', $synonym->candidateSource);
+        $this->assertSame('fa', $synonym->matchedLocale);
+        $this->assertSame($synonym->matchedVariant->query, $synonym->matchedQuery);
     }
 
     public function test_source_type_and_partition_reject_empty_values(): void
     {
         $this->expectException(InvalidArgumentException::class);
         PersianSearch::search('test')->type(' ');
+    }
+
+    public function test_matched_variant_provenance_survives_virtual_results(): void
+    {
+        PersianSearch::indexDocument($this->virtualDocument());
+        $result = PersianSearch::query('درباره')->locale('fa')->partition('public')->results()->items()[0];
+
+        $this->assertSame('original', $result->candidateSource);
+        $this->assertSame('درباره', $result->matchedQuery);
+        $this->assertSame('fa', $result->matchedLocale);
+        $this->assertSame($result->matchedVariant->toArray(), $result->toArray()['matched_variant']);
+    }
+
+    public function test_same_document_matching_original_and_synonym_is_returned_once_with_original_provenance(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.locales', ['fa' => ['کالا' => ['محصول']]]);
+        PersianSearch::indexDocument(new SearchDocument(
+            partition: 'default',
+            sourceKey: 'page:original-and-synonym',
+            sourceType: 'page',
+            sourceId: null,
+            locale: 'fa',
+            title: 'کالا محصول',
+            excerpt: null,
+            normalizedTitle: 'کالا محصول',
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: 'کالا محصول',
+        ));
+
+        $results = PersianSearch::query('کالا')->locale('fa')->type('page')->results();
+
+        $this->assertCount(1, $results->items());
+        $this->assertSame('original', $results->items()[0]->candidateSource);
+        $this->assertSame('original', $results->items()[0]->matchedVariant->source->value);
+    }
+
+    public function test_keyboard_synonym_result_retains_both_provenance_operations(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.locales', ['fa' => ['پرتقال' => ['نارنج']]]);
+        PersianSearch::indexDocument(new SearchDocument(
+            partition: 'default',
+            sourceKey: 'page:keyboard-synonym',
+            sourceType: 'page',
+            sourceId: null,
+            locale: 'fa',
+            title: 'نارنج',
+            excerpt: null,
+            normalizedTitle: 'نارنج',
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: 'نارنج',
+        ));
+
+        $result = PersianSearch::query('\\vjrhg')->locale('en')->type('page')->results()->items()[0];
+
+        $this->assertSame('keyboard_synonym', $result->candidateSource);
+        $this->assertSame('fa', $result->matchedLocale);
+        $this->assertNotNull($result->matchedVariant->keyboardCorrection);
+        $this->assertCount(1, $result->matchedVariant->appliedSynonyms);
+    }
+
+    public function test_duplicate_synonyms_do_not_execute_identical_query_locale_variants(): void
+    {
+        config()->set('persian-search.variants.maximum_variants', 5);
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.locales', ['en' => [
+            'a' => ['x'],
+            'a b' => ['x b'],
+            'a b c' => ['x b c'],
+            'b' => ['y'],
+        ]]);
+        PersianSearch::indexDocument(new SearchDocument(
+            partition: 'default',
+            sourceKey: 'page:semantic-deduplication',
+            sourceType: 'page',
+            sourceId: null,
+            locale: 'en',
+            title: 'x b c',
+            excerpt: null,
+            normalizedTitle: 'x b c',
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: 'a y c',
+        ));
+        $builder = PersianSearch::query('a b c')->locale('en')->type('page');
+        $variantCount = $builder->variants()->count();
+        $queries = 0;
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        $results = $builder->results();
+
+        $this->assertSame(4, $variantCount);
+        $this->assertSame($variantCount, $queries);
+        $this->assertCount(1, $results->items());
     }
 
     private function virtualDocument(

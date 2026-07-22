@@ -13,13 +13,20 @@ use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
+use Zarbinco\PersianSearch\Contracts\SynonymExpander;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
+use Zarbinco\PersianSearch\Exceptions\InvalidQueryVariantConfigurationException;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchQueryConfigurationException;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Query\DefaultQueryExpander;
+use Zarbinco\PersianSearch\Query\KeyboardCorrectionPolicy;
 use Zarbinco\PersianSearch\Query\KeyboardLayoutCorrector;
-use Zarbinco\PersianSearch\Query\SynonymExpander;
+use Zarbinco\PersianSearch\Query\QueryVariantPolicy;
+use Zarbinco\PersianSearch\Query\SynonymDictionary;
+use Zarbinco\PersianSearch\Query\SynonymDictionaryFactory;
+use Zarbinco\PersianSearch\Query\TokenAwareSynonymExpander;
+use Zarbinco\PersianSearch\Query\WindowsPersianKeyboardMap;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
 use Zarbinco\PersianSearch\Search\SearchQueryPolicy;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
@@ -76,17 +83,53 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(BasicRanker::class, BasicRanker::class);
 
-        $this->app->singleton(KeyboardLayoutCorrector::class, KeyboardLayoutCorrector::class);
+        $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
+            $variants = config('persian-search.variants', []);
 
-        $this->app->singleton(SynonymExpander::class, function ($app): SynonymExpander {
-            return new SynonymExpander(
-                $app->make(SearchTextPipeline::class),
+            if (! is_array($variants)) {
+                throw InvalidQueryVariantConfigurationException::forValue('variants', $variants, 'must be an array');
+            }
+
+            return QueryVariantPolicy::fromArray(
+                $variants['maximum_variants'] ?? 20,
+                is_array($variants['priorities'] ?? null) ? $variants['priorities'] : [],
             );
+        });
+        $this->app->singleton(KeyboardCorrectionPolicy::class, function ($app): KeyboardCorrectionPolicy {
+            $keyboard = config('persian-search.keyboard', []);
+
+            if (! is_array($keyboard)) {
+                throw InvalidQueryVariantConfigurationException::forValue('keyboard', $keyboard, 'must be an array');
+            }
+
+            return KeyboardCorrectionPolicy::fromArray($keyboard, $app->make(SearchLocaleResolver::class));
+        });
+        $this->app->singleton(WindowsPersianKeyboardMap::class, WindowsPersianKeyboardMap::class);
+        $this->app->singleton(KeyboardLayoutCorrector::class, function ($app): KeyboardLayoutCorrector {
+            return new KeyboardLayoutCorrector(
+                $app->make(KeyboardCorrectionPolicy::class),
+                $app->make(WindowsPersianKeyboardMap::class),
+                $app->make(SearchTextPipeline::class),
+                $app->make(SearchLocaleResolver::class),
+            );
+        });
+        $this->app->singleton(SynonymDictionaryFactory::class, SynonymDictionaryFactory::class);
+        $this->app->singleton(SynonymDictionary::class, function ($app): SynonymDictionary {
+            $synonyms = config('persian-search.synonyms', []);
+
+            if (! is_array($synonyms)) {
+                throw InvalidQueryVariantConfigurationException::forValue('synonyms', $synonyms, 'must be an array');
+            }
+
+            return $app->make(SynonymDictionaryFactory::class)->make($synonyms);
+        });
+        $this->app->singleton(SynonymExpander::class, function ($app): SynonymExpander {
+            return new TokenAwareSynonymExpander($app->make(SynonymDictionary::class), $app->make(SearchTextPipeline::class));
         });
 
         $this->app->singleton(DefaultQueryExpander::class, function ($app): DefaultQueryExpander {
             return new DefaultQueryExpander(
-                $app->make(SearchTextPipeline::class),
+                $app->make(QueryVariantPolicy::class),
                 $app->make(KeyboardLayoutCorrector::class),
                 $app->make(SynonymExpander::class),
             );

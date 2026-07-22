@@ -7,15 +7,24 @@ use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 
 final readonly class SearchResult
 {
-    /** @param  list<string>  $matchedTokens */
+    public string $candidateSource;
+
+    public string $matchedQuery;
+
+    public string $matchedLocale;
+
+    /** @param list<string> $matchedTokens */
     public function __construct(
         public SearchDocumentRecord $record,
         public ?Model $model,
         public int|float $score,
         public array $matchedTokens,
-        public ?string $candidateSource = null,
-        public ?string $matchedQuery = null,
-    ) {}
+        public QueryVariant $matchedVariant,
+    ) {
+        $this->candidateSource = $this->matchedVariant->source->value;
+        $this->matchedQuery = $this->matchedVariant->query;
+        $this->matchedLocale = $this->matchedVariant->locale;
+    }
 
     /** @return array<string, mixed> */
     public function toArray(): array
@@ -25,8 +34,10 @@ final readonly class SearchResult
             'model' => $this->model,
             'score' => $this->score,
             'matched_tokens' => $this->matchedTokens,
+            'matched_variant' => $this->matchedVariant->toArray(),
             'candidate_source' => $this->candidateSource,
             'matched_query' => $this->matchedQuery,
+            'matched_locale' => $this->matchedLocale,
         ];
     }
 }

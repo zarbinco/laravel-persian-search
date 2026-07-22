@@ -8,7 +8,7 @@ use LogicException;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
-use Zarbinco\PersianSearch\Search\QueryCandidate;
+use Zarbinco\PersianSearch\Search\QueryVariant;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchResult;
 use Zarbinco\PersianSearch\Search\SearchResults;
@@ -23,17 +23,34 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             return new SearchResults($query, $query->processedQuery, [], 0);
         }
 
-        $candidates = $this->queryCandidates($query);
+        /** @var array<string, array{record: SearchDocumentRecord, score: float, matched_tokens: list<string>, variant: QueryVariant}> $scored */
         $scored = [];
 
-        foreach ($this->candidateRecords($query, $candidates) as $record) {
-            $score = $this->bestScore($record, $candidates);
+        foreach ($query->variants() as $variant) {
+            foreach ($this->candidateRecords($query, $variant) as $record) {
+                $score = $this->ranker->scoreVariant($record, $variant);
 
-            if ($score['score'] > 0) {
-                $scored[] = ['record' => $record, ...$score];
+                if ($score['score'] <= 0) {
+                    continue;
+                }
+
+                $key = (string) $record->getKey();
+                $existing = $scored[$key] ?? null;
+
+                if ($existing === null
+                    || $variant->priority > $existing['variant']->priority
+                    || ($variant->priority === $existing['variant']->priority && $score['score'] > $existing['score'])) {
+                    $scored[$key] = [
+                        'record' => $record,
+                        'score' => $score['score'],
+                        'matched_tokens' => $score['matched_tokens'],
+                        'variant' => $variant,
+                    ];
+                }
             }
         }
 
+        $scored = array_values($scored);
         usort($scored, static function (array $left, array $right): int {
             $score = $right['score'] <=> $left['score'];
 
@@ -41,36 +58,27 @@ final readonly class DatabaseSearchDriver implements SearchDriver
                 return $score;
             }
 
-            /** @var SearchDocumentRecord $leftRecord */
-            $leftRecord = $left['record'];
-            /** @var SearchDocumentRecord $rightRecord */
-            $rightRecord = $right['record'];
+            $priority = $right['record']->priority <=> $left['record']->priority;
 
-            if ($leftRecord->priority !== $rightRecord->priority) {
-                return $rightRecord->priority <=> $leftRecord->priority;
+            if ($priority !== 0) {
+                return $priority;
             }
 
-            return [$leftRecord->source_key, $leftRecord->locale]
-                <=> [$rightRecord->source_key, $rightRecord->locale];
+            return [$left['record']->source_key, $left['record']->locale]
+                <=> [$right['record']->source_key, $right['record']->locale];
         });
 
-        $models = $this->hydrateModels(array_map(
-            static fn (array $item): SearchDocumentRecord => $item['record'],
-            $scored,
-        ));
+        $models = $this->hydrateModels(array_map(static fn (array $item): SearchDocumentRecord => $item['record'], $scored));
         $items = [];
 
         foreach ($scored as $item) {
-            /** @var SearchDocumentRecord $record */
             $record = $item['record'];
-            $modelKey = $record->source_type.'|'.$record->source_id;
             $items[] = new SearchResult(
                 record: $record,
-                model: $models[$modelKey] ?? null,
+                model: $models[$record->source_type.'|'.$record->source_id] ?? null,
                 score: $item['score'],
                 matchedTokens: $item['matched_tokens'],
-                candidateSource: $item['candidate_source'],
-                matchedQuery: $item['matched_query'],
+                matchedVariant: $item['variant'],
             );
         }
 
@@ -79,96 +87,36 @@ final readonly class DatabaseSearchDriver implements SearchDriver
         return new SearchResults($query, $query->processedQuery, array_slice($items, $query->offset, $query->limit), $total);
     }
 
-    /** @return list<QueryCandidate> */
-    private function queryCandidates(SearchQuery $query): array
-    {
-        if ($query->hasCandidates()) {
-            return $query->candidates();
-        }
-
-        return [new QueryCandidate(
-            source: 'original',
-            original: $query->original,
-            normalized: $query->normalized,
-            tokens: $query->tokens,
-            boost: 1.0,
-        )];
-    }
-
-    /**
-     * @param  list<QueryCandidate>  $candidates
-     * @return array{score: float, matched_tokens: list<string>, candidate_source: string|null, matched_query: string|null}
-     */
-    private function bestScore(SearchDocumentRecord $record, array $candidates): array
-    {
-        $best = ['score' => 0.0, 'matched_tokens' => [], 'candidate_source' => null, 'matched_query' => null];
-
-        foreach ($candidates as $candidate) {
-            $score = $this->ranker->scoreCandidate($record, $candidate);
-
-            if ($score['score'] > $best['score']) {
-                $best = [
-                    'score' => $score['score'],
-                    'matched_tokens' => $score['matched_tokens'],
-                    'candidate_source' => $score['candidate_source'],
-                    'matched_query' => $score['matched_query'],
-                ];
-            }
-        }
-
-        return $best;
-    }
-
-    /**
-     * @param  list<QueryCandidate>  $candidates
-     * @return list<SearchDocumentRecord>
-     */
-    private function candidateRecords(SearchQuery $query, array $candidates): array
+    /** @return list<SearchDocumentRecord> */
+    private function candidateRecords(SearchQuery $query, QueryVariant $variant): array
     {
         $builder = SearchDocumentRecord::query()
             ->where('partition', $query->partition)
-            ->where('is_active', true);
+            ->where('is_active', true)
+            ->where('locale', SearchDocumentRecord::localeStorageKey($variant->locale));
 
         if ($query->hasSourceTypes()) {
             $builder->whereIn('source_type', $query->sourceTypes);
         }
 
-        if ($query->locale !== null) {
-            $builder->where('locale', SearchDocumentRecord::localeStorageKey($query->locale));
-        }
+        $terms = array_values(array_unique([$variant->query, ...$variant->tokens]));
+        $builder->where(function ($nested) use ($terms): void {
+            foreach ($terms as $term) {
+                $pattern = '%'.addcslashes($term, '%_\\').'%';
 
-        $terms = [];
-
-        foreach ($candidates as $candidate) {
-            $terms[] = $candidate->normalized;
-            array_push($terms, ...$candidate->tokens);
-        }
-
-        $terms = array_values(array_unique(array_filter($terms, static fn (string $term): bool => $term !== '')));
-
-        if ($terms !== []) {
-            $builder->where(function ($nested) use ($terms): void {
-                foreach ($terms as $term) {
-                    $pattern = '%'.addcslashes($term, '%_\\').'%';
-
-                    foreach (['normalized_title', 'normalized_excerpt', 'normalized_keywords', 'normalized_content'] as $column) {
-                        $nested->orWhere($column, 'like', $pattern);
-                    }
+                foreach (['normalized_title', 'normalized_excerpt', 'normalized_keywords', 'normalized_content'] as $column) {
+                    $nested->orWhere($column, 'like', $pattern);
                 }
-            });
-        }
+            }
+        });
 
-        $records = [];
-
-        foreach ($builder->limit(max(1, (int) config('persian-search.database.max_candidates', 500)))->get() as $record) {
-            $records[] = $record;
-        }
+        /** @var list<SearchDocumentRecord> $records */
+        $records = $builder->limit(max(1, (int) config('persian-search.database.max_candidates', 500)))->get()->all();
 
         return $records;
     }
 
-    /**
-     * @param  list<SearchDocumentRecord>  $records
+    /** @param list<SearchDocumentRecord> $records
      * @return array<string, Model>
      */
     private function hydrateModels(array $records): array
@@ -199,9 +147,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
                 $withTrashed();
             }
 
-            $hydrated = $builder->whereKey(array_values(array_unique($ids)))->get();
-
-            foreach ($hydrated as $model) {
+            foreach ($builder->whereKey(array_values(array_unique($ids)))->get() as $model) {
                 $models[$type.'|'.$model->getKey()] = $model;
             }
         }
