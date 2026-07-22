@@ -18,8 +18,11 @@ use Zarbinco\PersianSearch\Contracts\SynonymExpander;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Exceptions\InvalidQueryVariantConfigurationException;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchDocumentProviderException;
+use Zarbinco\PersianSearch\Exceptions\InvalidSearchIndexingConfigurationException;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchQueryConfigurationException;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentPersistenceVerifier;
+use Zarbinco\PersianSearch\Indexing\SearchIndexingPolicy;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
 use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
@@ -187,9 +190,21 @@ final class PersianSearchServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(SearchIndexingPolicy::class, function (): SearchIndexingPolicy {
+            $attempts = config('persian-search.index.transaction_attempts', 3);
+
+            if (! is_int($attempts)) {
+                throw InvalidSearchIndexingConfigurationException::transactionAttempts($attempts);
+            }
+
+            return new SearchIndexingPolicy($attempts);
+        });
+
         $this->app->singleton(SearchIndexManager::class, function ($app): SearchIndexManager {
             return new SearchIndexManager(
                 $app->make(SearchDocumentProviderRegistry::class),
+                $app->make(SearchIndexingPolicy::class),
+                $app->make(SearchDocumentPersistenceVerifier::class),
             );
         });
 

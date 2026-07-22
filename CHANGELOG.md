@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Verify reloaded persisted semantic fields for replacement and direct indexing, including hash-matching unchanged rows, canonical payloads, and storage-normalized source timestamps.
+- Attribute direct first-create race recovery to the configured search-document insert and rethrow unrelated or post-insert listener uniqueness failures.
+- Add focused semantic mismatch diagnostics that list field names without exposing stored or incoming values.
+- Treat Eloquent-cancelled index creates, updates, and deletes as transactional persistence failures and verify the final source identity snapshot before commit.
+- Add a dedicated leading `source_key` index for deterministic source conflict and locking lookups.
+- Make direct single-document indexing transactional and tolerant of concurrent first-create identity races without deleting sibling documents.
+- Harden persistence and source-conflict diagnostics against unsafe identity control and formatting characters.
+- Made provider-based source indexing an atomic complete-snapshot replacement on the configured search-index connection.
+- Added exact created, updated, unchanged, stale-deleted, incoming, and final source-index results.
+- Added deterministic source-row locking, persisted source-identity conflict detection, and bounded transaction retries over prevalidated sets.
+- Preserved true hash-based no-op writes and single-document sibling-safe upserts while cleaning omitted locales, partitions, and empty source snapshots.
+- Updated model synchronization and reindex reporting to use the same atomic replacement path.
 - Made provider-key validation and diagnostics Unicode-aware, rejecting control, formatting, and edge-whitespace characters.
 - Isolated fallback searchable-relation declarations from custom-provider model rebuilds.
 - Made custom fresh deletion use the exact source reference from the validated document set without resolving it again.

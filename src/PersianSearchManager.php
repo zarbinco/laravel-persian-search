@@ -4,7 +4,6 @@ namespace Zarbinco\PersianSearch;
 
 use Closure;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Collection;
 use Throwable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
@@ -13,9 +12,11 @@ use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Indexing\SearchSourceIndexResult;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
 use Zarbinco\PersianSearch\Providers\SearchDocumentSet;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
@@ -96,10 +97,14 @@ final class PersianSearchManager
         return $this->indexManager->documentsFor($source);
     }
 
-    /** @return Collection<int, SearchDocumentRecord> */
-    public function indexSource(mixed $source): Collection
+    public function indexSource(mixed $source): SearchSourceIndexResult
     {
         return $this->indexManager->indexSource($source);
+    }
+
+    public function replaceDocumentSet(SearchDocumentSet $set): SearchSourceIndexResult
+    {
+        return $this->indexManager->replaceDocumentSet($set);
     }
 
     public function providerFor(mixed $source): SearchDocumentProvider
@@ -130,6 +135,11 @@ final class PersianSearchManager
     public function deleteSource(mixed $source): int
     {
         return $this->indexManager->deleteSource($source);
+    }
+
+    public function deleteSourceReference(SearchSourceReference $reference): int
+    {
+        return $this->indexManager->deleteSourceReference($reference);
     }
 
     public function deleteSourceKey(string $sourceKey, ?string $partition = null): int

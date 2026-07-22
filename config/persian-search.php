@@ -11,6 +11,7 @@ return [
         'sync_on_save' => true,
         'delete_on_model_delete' => true,
         'include_soft_deleted' => false,
+        'transaction_attempts' => 3,
     ],
 
     'database' => [

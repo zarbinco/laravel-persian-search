@@ -8,6 +8,7 @@ use DateTimeInterface;
 use DateTimeZone;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Support\Enumerable;
+use InvalidArgumentException;
 use JsonSerializable;
 use Stringable;
 use Traversable;
@@ -75,7 +76,20 @@ final class SearchDocumentHasher
             return $safe;
         }
 
-        return null;
+        throw new InvalidArgumentException(
+            'Search document payload contains unsupported value ['.get_debug_type($value).'].',
+        );
+    }
+
+    /**
+     * @param  array<string|int, mixed>  $payload
+     * @return array<string|int, mixed>
+     */
+    public static function canonicalizePayload(array $payload): array
+    {
+        $canonical = self::canonicalize($payload);
+
+        return is_array($canonical) ? $canonical : [];
     }
 
     private static function canonicalize(mixed $value): mixed

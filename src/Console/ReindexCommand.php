@@ -91,46 +91,38 @@ final class ReindexCommand extends Command
         }
 
         $sourceCount = 0;
-        $documentCount = 0;
-        $customDeletedCount = 0;
-        $encounteredCustomFresh = $customFresh;
+        $incomingCount = 0;
+        $createdCount = 0;
+        $updatedCount = 0;
+        $unchangedCount = 0;
+        $deletedCount = 0;
 
         $query->chunkById($chunk, function ($models) use (
             $index,
-            $providers,
-            $fresh,
             &$sourceCount,
-            &$documentCount,
-            &$customDeletedCount,
-            &$encounteredCustomFresh,
+            &$incomingCount,
+            &$createdCount,
+            &$updatedCount,
+            &$unchangedCount,
+            &$deletedCount,
         ): void {
             foreach ($models as $model) {
-                $provider = $providers->resolve($model);
-
-                if ($fresh && ! $provider instanceof EloquentSearchDocumentProvider) {
-                    if (! $encounteredCustomFresh) {
-                        $this->components->warn(
-                            'Orphaned custom-provider sources for models no longer in the database are not removed; use an explicit source-type flush.',
-                        );
-                        $encounteredCustomFresh = true;
-                    }
-
-                    $set = $index->documentsFor($model);
-                    $customDeletedCount += $index->deleteSourceReference($set->reference);
-                    $documentCount += $index->indexDocumentSet($set)->count();
-                } else {
-                    $documentCount += $index->indexSource($model)->count();
-                }
+                $result = $index->indexSource($model);
 
                 $sourceCount++;
+                $incomingCount += $result->incoming;
+                $createdCount += $result->created;
+                $updatedCount += $result->updated;
+                $unchangedCount += $result->unchanged;
+                $deletedCount += $result->deleted;
             }
         });
 
-        if ($encounteredCustomFresh) {
-            $this->components->info("Deleted {$customDeletedCount} current custom-provider Persian search document(s).");
-        }
-
-        $this->components->info("Indexed {$documentCount} Persian search document(s).");
+        $this->components->info("Indexed {$incomingCount} Persian search document(s).");
+        $this->components->info("Created {$createdCount} Persian search document(s).");
+        $this->components->info("Updated {$updatedCount} Persian search document(s).");
+        $this->components->info("Unchanged {$unchangedCount} Persian search document(s).");
+        $this->components->info("Deleted {$deletedCount} stale Persian search document(s).");
         $this->components->info("Processed {$sourceCount} searchable source(s).");
 
         return self::SUCCESS;

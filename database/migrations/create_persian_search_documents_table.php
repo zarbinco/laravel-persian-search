@@ -32,6 +32,7 @@ return new class extends Migration
                 $table->timestamps();
 
                 $table->unique(['partition', 'source_key', 'locale'], 'ps_docs_identity_unique');
+                $table->index('source_key', 'ps_docs_source_key');
                 $table->index(['partition', 'locale', 'is_active'], 'ps_docs_partition_locale_active');
                 $table->index(['partition', 'source_type', 'locale', 'is_active'], 'ps_docs_partition_type_locale_active');
                 $table->index(['source_type', 'source_id'], 'ps_docs_source_type_id');

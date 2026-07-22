@@ -152,12 +152,17 @@ Application sources are converted to validated document sets by a provider regis
 Every provider returns a stable `SearchSourceReference` containing a source key, source type, and canonical string or null source ID. It may then yield zero, one, or many documents across locales and partitions. The validated set rejects non-documents, source mismatches, and duplicate `partition + source_key + locale` identities before any index write.
 
 ```php
-$set = PersianSearch::documentsFor($source); // Read-only
-$records = PersianSearch::indexSource($source);
+$set = PersianSearch::documentsFor($source); // Build and validate; no writes
+$result = PersianSearch::indexSource($source); // Complete atomic replacement
+$result = PersianSearch::replaceDocumentSet($set); // Replace an already validated set
 $deleted = PersianSearch::deleteSource($source); // Every locale and partition
 ```
 
-`indexSource()` upserts the documents currently returned by the provider in their original order. It does not remove older documents omitted from the latest provider output, and an empty output performs no writes or deletions.
+`indexSource()` resolves the provider once, fully builds and validates its document set before opening a database transaction, and then makes the persisted source snapshot exactly match that set. It creates missing identities, updates only semantically changed identities, leaves identical rows and timestamps untouched, and deletes omitted locales and partitions as stale. Empty output is a valid empty snapshot and deletes every existing document for that source. The returned `SearchSourceIndexResult` reports exact incoming, created, updated, unchanged, deleted, and final counts; `changed()` sums created, updated, and deleted rows, while `isNoOp()` is true when none of those rows changed.
+
+`indexDocument()` is deliberately different: it is a transactionally race-tolerant single-document upsert and never deletes sibling locales or partitions. It locks and validates the source key, preserves hash-based no-op behavior, and recovers when a concurrent first writer creates the same identity. Race recovery applies only when the unique violation is attributable to the search-document insert on the configured connection; unique violations from model listeners or unrelated database work are rethrown. Every returned row is reloaded from the write connection and semantically verified. `documentsFor()` only constructs and validates a set. `deleteSourceReference()` explicitly deletes the complete identity named by a `SearchSourceReference`.
+
+Each source replacement is transactionally all-or-nothing on the configured search-index connection. Existing rows for the source are locked in deterministic identity order during comparison and persistence, with the source-key lookup backed by a dedicated `source_key` index; database uniqueness continues protecting document identities. A create, update, or delete rejected by an Eloquent event is treated as a persistence failure. Before success, every row is reloaded and the complete semantic state—not only identity or `document_hash`—is compared with the validated document set. Observer mutations and hash-matching corrupted fields therefore roll back the transaction. This is not a distributed lock and does not claim stronger first-write serialization on databases where no existing source row can be locked. Transaction retries use the same prevalidated set; configure the bounded attempt count with `persian-search.index.transaction_attempts` (default `3`).
 
 ## Eloquent fallback provider
 
@@ -244,7 +249,7 @@ php artisan persian-search:flush page --partition=public
 php artisan persian-search:flush --force
 ```
 
-For the Eloquent fallback, `--fresh` globally removes documents using the model-class source type before rebuilding, including orphaned documents whose model rows no longer exist. For a custom provider, the command validates each current model's complete document set, deletes using the exact `SearchSourceReference` carried by that validated set, and then indexes the same set. The provider reference is not recomputed for deletion. This removes omitted locale or partition documents for current models only. Custom-provider documents belonging to model rows that are no longer returned by the scoped model query cannot yet be enumerated; the command emits one warning and those orphaned sources require an explicit source-type flush. Normal `indexSource()` behavior remains non-destructive and does not remove omitted documents.
+Every current model is rebuilt through atomic source replacement. Command output reports processed sources plus incoming, created, updated, unchanged, and stale-deleted document totals. For the Eloquent fallback, `--fresh` first performs a global model-class flush, reports that count separately, and then rebuilds current models; this also removes fallback documents whose model rows no longer exist. A custom-provider `--fresh` does not pre-delete current sources, because replacement already removes their stale locales and partitions without rewriting unchanged rows. Custom-provider documents belonging to model rows no longer returned by the scoped model query cannot currently be enumerated; the command emits one warning per run and those orphaned sources require an explicit source-type flush.
 
 ## Architecture and boundaries
 

@@ -2,11 +2,13 @@
 
 namespace Zarbinco\PersianSearch\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentHasher;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 
 /**
  * @property int $id
@@ -95,6 +97,32 @@ final class SearchDocumentRecord extends Model
     public static function localeStorageKey(?string $locale): string
     {
         return SearchDocumentIdentity::normalizeLocale($locale);
+    }
+
+    /**
+     * @param  Builder<SearchDocumentRecord>  $query
+     * @return Builder<SearchDocumentRecord>
+     */
+    public function scopeForSourceReference(Builder $query, SearchSourceReference $reference): Builder
+    {
+        $query
+            ->where('source_key', $reference->sourceKey)
+            ->where('source_type', $reference->sourceType);
+
+        if ($reference->sourceId === null) {
+            return $query->whereNull('source_id');
+        }
+
+        return $query->where('source_id', $reference->sourceId);
+    }
+
+    /**
+     * @param  Builder<SearchDocumentRecord>  $query
+     * @return Builder<SearchDocumentRecord>
+     */
+    public function scopeInIdentityOrder(Builder $query): Builder
+    {
+        return $query->orderBy('partition')->orderBy('locale')->orderBy($this->qualifyColumn('id'));
     }
 
     /**

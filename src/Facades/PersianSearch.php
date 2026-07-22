@@ -3,7 +3,6 @@
 namespace Zarbinco\PersianSearch\Facades;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Facade;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
@@ -12,9 +11,11 @@ use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Indexing\SearchSourceIndexResult;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
 use Zarbinco\PersianSearch\Providers\SearchDocumentSet;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
@@ -30,7 +31,8 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static SearchQueryProcessor queryProcessor()
  * @method static SearchDocument documentFor(Model $model)
  * @method static SearchDocumentSet documentsFor(mixed $source)
- * @method static Collection<int, SearchDocumentRecord> indexSource(mixed $source)
+ * @method static SearchSourceIndexResult indexSource(mixed $source)
+ * @method static SearchSourceIndexResult replaceDocumentSet(SearchDocumentSet $set)
  * @method static SearchDocumentProvider providerFor(mixed $source)
  * @method static SearchDocumentBuilder builder()
  * @method static SearchDocumentRecord index(Model $model)
@@ -38,6 +40,7 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static int deleteFromIndex(Model $model)
  * @method static int deleteDocument(SearchDocumentIdentity $identity)
  * @method static int deleteSource(mixed $source)
+ * @method static int deleteSourceReference(SearchSourceReference $reference)
  * @method static int deleteSourceKey(string $sourceKey, ?string $partition = null)
  * @method static int flushIndex(?string $sourceType = null, ?string $partition = null)
  * @method static SearchIndexManager indexManager()

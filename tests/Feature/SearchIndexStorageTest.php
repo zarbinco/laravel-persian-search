@@ -50,6 +50,20 @@ final class SearchIndexStorageTest extends TestCase
         }
     }
 
+    public function test_source_key_locking_index_and_existing_indexes_are_present(): void
+    {
+        $indexes = collect(Schema::getIndexes('persian_search_documents'))->keyBy('name');
+
+        $this->assertSame(['source_key'], $indexes->get('ps_docs_source_key')['columns'] ?? null);
+        $this->assertSame(
+            ['partition', 'source_key', 'locale'],
+            $indexes->get('ps_docs_identity_unique')['columns'] ?? null,
+        );
+        $this->assertArrayHasKey('ps_docs_partition_locale_active', $indexes);
+        $this->assertArrayHasKey('ps_docs_partition_type_locale_active', $indexes);
+        $this->assertArrayHasKey('ps_docs_source_type_id', $indexes);
+    }
+
     public function test_identity_validates_values_and_normalizes_undefined_locale(): void
     {
         $identity = new SearchDocumentIdentity(' public ', ' page:about ', null);

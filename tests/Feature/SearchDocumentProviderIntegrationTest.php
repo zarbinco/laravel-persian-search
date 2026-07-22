@@ -47,16 +47,18 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
 
         $this->assertCount(3, $set);
         $this->assertSame(0, SearchDocumentRecord::count());
-        $records = PersianSearch::indexSource($product);
-        $this->assertSame(['fa', 'en', 'fa'], $records->pluck('locale')->all());
-        $this->assertSame(['public', 'public', 'admin'], $records->pluck('partition')->all());
+        $result = PersianSearch::indexSource($product);
+        $this->assertSame(3, $result->created);
+        $this->assertSame(3, $result->incoming);
         $this->assertSame(3, SearchDocumentRecord::count());
 
-        PersianSearch::indexSource($product);
+        $result = PersianSearch::indexSource($product);
+        $this->assertSame(3, $result->unchanged);
+        $this->assertTrue($result->isNoOp());
         $this->assertSame(3, SearchDocumentRecord::count());
     }
 
-    public function test_empty_output_writes_nothing_and_does_not_delete_existing_documents(): void
+    public function test_empty_output_replaces_the_source_with_an_empty_snapshot(): void
     {
         $this->useProviders([EmptyAwareVirtualProvider::class]);
         $source = new ProviderVirtualSource('about', false);
@@ -65,8 +67,10 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
 
         $empty = new ProviderVirtualSource('about', true);
         $this->assertTrue(PersianSearch::documentsFor($empty)->isEmpty());
-        $this->assertTrue(PersianSearch::indexSource($empty)->isEmpty());
-        $this->assertSame(1, SearchDocumentRecord::count());
+        $result = PersianSearch::indexSource($empty);
+        $this->assertSame(1, $result->deleted);
+        $this->assertSame(0, $result->final);
+        $this->assertSame(0, SearchDocumentRecord::count());
     }
 
     public function test_deletesource_removes_all_locales_and_partitions_but_not_another_source(): void
@@ -169,7 +173,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
             '--chunk' => 1,
         ]);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Deleted 6 current custom-provider Persian search document(s).');
+        $command->expectsOutputToContain('Deleted 2 stale Persian search document(s).');
         $command->expectsOutputToContain('Indexed 4 Persian search document(s).');
         $command->expectsOutputToContain('Processed 2 searchable source(s).');
         $command->expectsOutputToContain('Orphaned custom-provider sources');
@@ -230,7 +234,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $this->assertSame(3, SearchDocumentRecord::query()->where('source_key', 'catalog:'.$unprocessed->getKey())->count());
     }
 
-    public function test_non_fresh_custom_provider_reindex_keeps_omitted_documents(): void
+    public function test_non_fresh_custom_provider_reindex_deletes_omitted_documents(): void
     {
         $this->useProviders([MultiProductProvider::class]);
         config()->set('persian-search.index.sync_on_save', false);
@@ -242,8 +246,8 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $this->assertInstanceOf(PendingCommand::class, $command);
         $this->assertSame(0, $command->execute());
 
-        $this->assertDatabaseCount('persian_search_documents', 3);
-        $this->assertDatabaseHas('persian_search_documents', ['partition' => 'admin', 'locale' => 'fa']);
+        $this->assertDatabaseCount('persian_search_documents', 2);
+        $this->assertDatabaseMissing('persian_search_documents', ['partition' => 'admin', 'locale' => 'fa']);
     }
 
     public function test_fresh_fallback_reindex_globally_removes_orphaned_model_documents(): void
@@ -301,7 +305,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $first = MultiProviderProduct::create(['title' => 'One']);
         $second = MultiProviderProduct::create(['title' => 'Two']);
         $firstSet = PersianSearch::documentsFor($first);
-        PersianSearch::indexManager()->indexDocumentSet($firstSet);
+        PersianSearch::replaceDocumentSet($firstSet);
         PersianSearch::indexSource($second);
         $referenceCalls = MultiProductProvider::$referenceCalls;
 

@@ -90,7 +90,9 @@ Indexing a source follows one path:
 
 ```text
 application source → provider registry → resolved provider → source reference
-                   → validated document set → index manager
+                   → fully consumed and validated document set
+                   → search-connection transaction → locked existing source rows
+                   → complete diff → create → update → stale delete → result
 ```
 
 A `SearchDocumentProvider` identifies itself with a stable key, determines whether it supports a source, returns the source's logical `SearchSourceReference`, and lazily yields search documents. Providers create documents only; they never write to or delete from the index.
@@ -104,15 +106,24 @@ Configured provider classes are read when the singleton registry is first resolv
 The public source operations are:
 
 ```php
-$documents = PersianSearch::documentsFor($source); // no writes
-$records = PersianSearch::indexSource($source);    // ordered upserts
-$deleted = PersianSearch::deleteSource($source);   // all locales and partitions
+$documents = PersianSearch::documentsFor($source);       // no writes
+$result = PersianSearch::indexSource($source);            // complete replacement
+$result = PersianSearch::replaceDocumentSet($documents);  // validated set replacement
+$deleted = PersianSearch::deleteSource($source);           // all locales and partitions
 $provider = PersianSearch::providerFor($source);
 ```
 
-Direct `indexDocument()` remains available. `indexSource()` only upserts documents returned by the current provider call. It does not remove previously indexed identities that are now omitted, and an empty document set does not remove existing rows.
+`indexSource()` resolves the provider and materializes its validated set before starting persistence. `replaceDocumentSet()` then uses the configured connection of `SearchDocumentRecord` for one bounded-retry transaction. It locks rows sharing the logical source key in stable partition, locale, and primary-key order; the lookup is backed by the dedicated `ps_docs_source_key` index. It rejects conflicting persisted source type or canonical/null ID; maps rows by `partition + source_key + locale`; computes the full diff; creates missing rows; updates changed rows; and finally deletes stale rows. The authoritative `forSourceReference()` scope applies exact key, type, and canonical string ID conditions, using `whereNull` for a null ID, and is shared by replacement and explicit reference deletion.
 
-The model-class reindex command has explicit provider-aware `--fresh` behavior. The Eloquent fallback retains its global model-class flush, which removes documents for missing model rows. A custom provider is handled per current source: the command first materializes and validates the complete `SearchDocumentSet`, then deletes all documents using the exact `SearchSourceReference` attached to that set, and finally indexes the same validated set without executing provider output or provider reference resolution again for deletion. This cleanup is command-only and has no transaction or replacement semantics. Because a model query cannot enumerate custom source identities for rows it no longer returns, orphaned custom-provider documents require an explicit source-type flush; one warning is emitted per command run.
+Every required `save()` and `delete()` outcome is checked. Eloquent event cancellation is a transaction failure rather than a successful partial result. Creates and changed updates are then reloaded by primary key plus exact identity from the write connection and semantically verified before their counters advance. Final verification reads the complete ordered source through the same reference scope, pairs every persisted row with its incoming document, and verifies identity, source metadata, display and normalized text, canonical decoded payload, typed priority and active state, document hash, and storage-normalized source timestamp. Database-managed IDs and timestamps plus operational `indexed_at` are excluded. Matching `document_hash` never bypasses field verification, so observer mutations and previously corrupted unchanged rows roll back rather than being accepted.
+
+Document hashes cover every persisted semantic field while excluding Laravel-managed timestamps. Associative payload keys are recursively canonicalized, list order and scalar types remain significant, and JSON failures are exceptions. Equal hashes are true no-ops: no `save()` or update query runs, the primary key and timestamps remain unchanged, and the row is counted as unchanged. An empty set is a complete empty snapshot, so it deletes all matching source rows; empty-to-empty is a no-op. `SearchSourceIndexResult` enforces `incoming = created + updated + unchanged` and `final = incoming`, with `changed()` equal to created plus updated plus deleted.
+
+Direct `indexDocument()` remains a low-level, hash-aware single-identity upsert and never removes sibling locales or partitions. It runs in a bounded-retry transaction on the configured search connection, uses the same locked source-key conflict validation, checks rejected create/update outcomes, and returns a freshly reloaded, semantically verified record. If a concurrent first writer wins the unique identity race, the operation reloads and validates that exact row, returns an identical semantic row unchanged, or updates and verifies it. Recovery is considered only when the model insert has not succeeded and the structured exception connection and SQL identify an insert into the configured search-document table. Post-insert, listener-table, different-connection, update, delete, and uncertain unique violations are rethrown unchanged. `documentsFor()` is construction and validation only. `deleteSourceReference()` is an explicit complete-source deletion operation.
+
+Each replacement is transactionally all-or-nothing. Existing rows for the source are locked during diff and persistence, and database uniqueness continues protecting document identities. This is not a cache, advisory, or distributed lock; in particular, the package does not claim stronger cross-database first-write serialization when no existing row is available to lock. Transaction retries rerun persistence against the same prevalidated document set and never rerun provider business logic.
+
+The model-class reindex command sends every current model through the same atomic `indexSource()` path and reports processed sources plus incoming, created, updated, unchanged, and stale-deleted totals. Fallback `--fresh` retains its separate global model-class flush so missing model rows are cleaned. Custom-provider `--fresh` does not pre-delete current sources and emits one warning because source identities belonging to model rows no longer returned by the scoped query cannot currently be enumerated; those orphaned documents require an explicit source-type flush.
 
 ## Built-in Eloquent fallback
 
