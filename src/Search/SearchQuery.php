@@ -22,6 +22,7 @@ final readonly class SearchQuery
         public int $limit,
         public int $offset,
         public bool $includeScores,
+        public ProcessedSearchQuery $processedQuery,
         private array $candidates = [],
     ) {}
 
@@ -73,6 +74,7 @@ final readonly class SearchQuery
             limit: $this->limit,
             offset: $this->offset,
             includeScores: $this->includeScores,
+            processedQuery: $this->processedQuery,
             candidates: $candidates,
         );
     }
@@ -91,6 +93,7 @@ final readonly class SearchQuery
             'limit' => $this->limit,
             'offset' => $this->offset,
             'include_scores' => $this->includeScores,
+            'processed_query' => $this->processedQuery->toArray(),
             'candidates' => array_map(
                 static fn (QueryCandidate $candidate): array => $candidate->toArray(),
                 $this->candidates,

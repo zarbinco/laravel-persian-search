@@ -35,6 +35,7 @@ final class DatabaseSearchDriverTest extends TestCase
 
     public function test_database_driver_resolves_and_eloquent_results_hydrate(): void
     {
+        app()->setLocale('fa');
         $this->assertInstanceOf(DatabaseSearchDriver::class, app(SearchDriver::class));
         $product = DriverProduct::create(['title' => 'كیكِ شکلاتي', 'description' => 'دسر تازه', 'locale' => 'fa']);
         PersianSearch::index($product);

@@ -20,7 +20,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
     public function search(SearchQuery $query): SearchResults
     {
         if ($query->isEmpty()) {
-            return new SearchResults($query, [], 0);
+            return new SearchResults($query, $query->processedQuery, [], 0);
         }
 
         $candidates = $this->queryCandidates($query);
@@ -76,7 +76,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
 
         $total = count($items);
 
-        return new SearchResults($query, array_slice($items, $query->offset, $query->limit), $total);
+        return new SearchResults($query, $query->processedQuery, array_slice($items, $query->offset, $query->limit), $total);
     }
 
     /** @return list<QueryCandidate> */

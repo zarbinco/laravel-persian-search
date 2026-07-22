@@ -8,7 +8,6 @@ use InvalidArgumentException;
 use Throwable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
-use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final class SearchQueryBuilder
 {
@@ -26,8 +25,8 @@ final class SearchQueryBuilder
     private bool $expansionEnabled = true;
 
     public function __construct(
-        private readonly string $query,
-        private readonly SearchTextPipeline $pipeline,
+        private readonly mixed $query,
+        private readonly SearchQueryProcessor $processor,
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
     ) {
@@ -121,13 +120,25 @@ final class SearchQueryBuilder
 
     public function results(): SearchResults
     {
-        return $this->driver->search($this->queryObject(true));
+        $query = $this->queryObject(true);
+
+        if (! $query->processedQuery->isSearchable()) {
+            return new SearchResults($query, $query->processedQuery, [], 0);
+        }
+
+        return $this->driver->search($query);
     }
 
     /** @return Collection<int, Model> */
     public function get(): Collection
     {
-        return $this->driver->search($this->queryObject(false))->models();
+        $query = $this->queryObject(false);
+
+        if (! $query->processedQuery->isSearchable()) {
+            return collect();
+        }
+
+        return $this->driver->search($query)->models();
     }
 
     public function first(): ?Model
@@ -137,22 +148,25 @@ final class SearchQueryBuilder
 
     private function queryObject(bool $includeScores): SearchQuery
     {
-        $prepared = $this->pipeline->prepare($this->query, $this->processingLocale());
+        $processed = $this->processor->process($this->query, $this->processingLocale());
 
         $query = new SearchQuery(
-            original: $prepared->raw,
-            normalized: $prepared->normalized,
-            tokens: $prepared->tokens,
+            original: $processed->sanitizedQuery,
+            normalized: $processed->normalizedQuery,
+            tokens: $processed->searchableTokens,
             sourceTypes: $this->sourceTypes,
-            locale: $this->locale,
-            textLocale: $prepared->locale,
+            locale: $processed->locale,
+            textLocale: $processed->locale,
             partition: $this->partition,
             limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
             offset: $this->offset,
             includeScores: $includeScores,
+            processedQuery: $processed,
         );
 
-        if (! $this->expansionEnabled || ! (bool) config('persian-search.query_expansion.enabled', true)) {
+        if (! $processed->isSearchable()
+            || ! $this->expansionEnabled
+            || ! (bool) config('persian-search.query_expansion.enabled', true)) {
             return $query;
         }
 
@@ -161,7 +175,7 @@ final class SearchQueryBuilder
 
     private function processingLocale(): ?string
     {
-        if ($this->locale !== null && trim($this->locale) !== '') {
+        if ($this->locale !== null) {
             return $this->locale;
         }
 

@@ -29,6 +29,11 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertNull(config('persian-search.index.queue'));
         $this->assertNull(config('persian-search.database.max_tokens'));
         $this->assertNull(config('persian-search.keyboard.layouts.fa_to_en'));
+        $this->assertSame(2, config('persian-search.query.minimum_length'));
+        $this->assertSame(200, config('persian-search.query.maximum_length'));
+        $this->assertSame(1, config('persian-search.query.minimum_token_length'));
+        $this->assertSame(20, config('persian-search.query.maximum_tokens'));
+        $this->assertSame('truncate', config('persian-search.query.maximum_length_policy'));
     }
 
     public function test_text_pipeline_contracts_resolve_to_default_implementations(): void
@@ -123,7 +128,8 @@ final class PersianSearchFoundationTest extends TestCase
         $queryBuilder = file_get_contents(__DIR__.'/../../src/Search/SearchQueryBuilder.php');
 
         $this->assertIsString($queryBuilder);
-        $this->assertStringContainsString('SearchTextPipeline', $queryBuilder);
+        $this->assertStringContainsString('SearchQueryProcessor', $queryBuilder);
+        $this->assertStringNotContainsString('SearchTextPipeline', $queryBuilder);
 
         foreach ([
             __DIR__.'/../../src/Query/DefaultQueryExpander.php',

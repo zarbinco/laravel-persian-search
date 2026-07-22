@@ -29,6 +29,14 @@ return [
         'max_limit' => 100,
     ],
 
+    'query' => [
+        'minimum_length' => 2,
+        'maximum_length' => 200,
+        'minimum_token_length' => 1,
+        'maximum_tokens' => 20,
+        'maximum_length_policy' => 'truncate',
+    ],
+
     'query_expansion' => [
         'enabled' => true,
         'max_candidates' => 25,

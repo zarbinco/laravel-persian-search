@@ -12,7 +12,9 @@ use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
+use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
+use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Text\PreparedSearchText;
 use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
@@ -21,6 +23,8 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static string normalize(string $value, ?string $locale = null)
  * @method static array<int, string> tokens(string $value, ?string $locale = null)
  * @method static SearchTextPipeline textPipeline()
+ * @method static ProcessedSearchQuery processQuery(mixed $query, ?string $locale = null)
+ * @method static SearchQueryProcessor queryProcessor()
  * @method static SearchDocument documentFor(Model $model)
  * @method static SearchDocumentBuilder builder()
  * @method static SearchDocumentRecord index(Model $model)
@@ -30,9 +34,10 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static int deleteSource(string $sourceKey, ?string $partition = null)
  * @method static int flushIndex(?string $sourceType = null, ?string $partition = null)
  * @method static SearchIndexManager indexManager()
- * @method static SearchQueryBuilder search(string $query)
+ * @method static SearchQueryBuilder query(mixed $query)
+ * @method static SearchQueryBuilder search(mixed $query)
  * @method static QueryExpander queryExpander()
- * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(string $query, ?string $locale = null)
+ * @method static list<\Zarbinco\PersianSearch\Search\QueryCandidate> expand(mixed $query, ?string $locale = null)
  * @method static SearchDriver driver()
  */
 final class PersianSearch extends Facade

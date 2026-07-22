@@ -14,12 +14,15 @@ use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
+use Zarbinco\PersianSearch\Exceptions\InvalidSearchQueryConfigurationException;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Query\DefaultQueryExpander;
 use Zarbinco\PersianSearch\Query\KeyboardLayoutCorrector;
 use Zarbinco\PersianSearch\Query\SynonymExpander;
 use Zarbinco\PersianSearch\Ranking\BasicRanker;
+use Zarbinco\PersianSearch\Search\SearchQueryPolicy;
+use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
 use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
 use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
@@ -52,6 +55,22 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchTextNormalizer::class),
                 $app->make(SearchTokenizer::class),
                 $app->make(SearchLocaleResolver::class),
+            );
+        });
+        $this->app->singleton(SearchQueryPolicy::class, function (): SearchQueryPolicy {
+            $query = config('persian-search.query', []);
+
+            if (! is_array($query)) {
+                throw InvalidSearchQueryConfigurationException::forValue('configuration', $query, 'must be an array');
+            }
+
+            return SearchQueryPolicy::fromArray($query);
+        });
+        $this->app->singleton(SearchQueryProcessor::class, function ($app): SearchQueryProcessor {
+            return new SearchQueryProcessor(
+                $app->make(SearchTextPipeline::class),
+                $app->make(SearchLocaleResolver::class),
+                $app->make(SearchQueryPolicy::class),
             );
         });
 
@@ -105,6 +124,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(
                 $app->make(SearchTextPipeline::class),
+                fn (): SearchQueryProcessor => $app->make(SearchQueryProcessor::class),
                 $app->make(SearchDocumentBuilder::class),
                 $app->make(SearchIndexManager::class),
                 $app->make(SearchDriver::class),

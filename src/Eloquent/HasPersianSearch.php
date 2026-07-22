@@ -49,7 +49,7 @@ trait HasPersianSearch
         });
     }
 
-    public static function persianSearch(string $query): SearchQueryBuilder
+    public static function persianSearch(mixed $query): SearchQueryBuilder
     {
         $manager = app(PersianSearchManager::class);
 

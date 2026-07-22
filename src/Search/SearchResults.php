@@ -10,6 +10,7 @@ final readonly class SearchResults
     /** @param  list<SearchResult>  $items */
     public function __construct(
         public SearchQuery $query,
+        public ProcessedSearchQuery $processedQuery,
         private array $items,
         public int $total,
     ) {}
@@ -40,6 +41,16 @@ final readonly class SearchResults
         return $this->items === [];
     }
 
+    public function status(): SearchQueryStatus
+    {
+        return $this->processedQuery->status;
+    }
+
+    public function isSearchableQuery(): bool
+    {
+        return $this->processedQuery->isSearchable();
+    }
+
     public function count(): int
     {
         return count($this->items);
@@ -50,6 +61,7 @@ final readonly class SearchResults
     {
         return [
             'query' => $this->query->toArray(),
+            'processed_query' => $this->processedQuery->toArray(),
             'total' => $this->total,
             'items' => array_map(static fn (SearchResult $result): array => $result->toArray(), $this->items),
         ];

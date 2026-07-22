@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added typed query policies, stable query statuses, and immutable processed-query diagnostics.
+- Added Unicode-safe query length enforcement, token eligibility filtering, and configurable truncation or rejection.
+- Added `PersianSearch::processQuery()` and the fluent `query()` API while retaining `search()` as an alias.
+- Short-circuited non-searchable queries before expansion, driver access, ranking, SQL, or model hydration.
 - Added a contract-driven locale-aware text pipeline for safe value conversion, HTML sanitization, normalization, and Unicode tokenization.
 - Added the immutable `PreparedSearchText` result and public `PersianSearch::prepareText()` utility.
 - Routed Eloquent document fields and query-expansion candidates through the shared pipeline.

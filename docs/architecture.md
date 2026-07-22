@@ -41,9 +41,36 @@ The tokenizer retains Unicode letters, combining marks, and numbers. It keeps ap
 
 The pipeline depends on the replaceable `SearchTextSanitizer`, `SearchTextNormalizer`, and `SearchTokenizer` contracts registered by the service provider. Document building and original, keyboard-corrected, and synonym query candidates all use this same preparation path.
 
+## Query processing
+
+User queries pass through `SearchQueryProcessor` before expansion, ranking, or driver access:
+
+```text
+raw query → strict string conversion → maximum-length policy → text pipeline
+          → status detection → token filtering/limit → processed query
+```
+
+`ProcessedSearchQuery` is an immutable diagnostic DTO containing the original and processed raw query, resolved locale, sanitized and normalized values, complete tokens, searchable tokens, status, truncation flag, and Unicode lengths. Query input accepts strings, `Stringable` objects, and null; unsupported types are rejected without serialization or logging.
+
+`SearchQueryStatus` has five stable values:
+
+- `empty`: sanitization leaves no content.
+- `punctuation_only`: content remains but its normalized form has no Unicode letter or number. This includes emoji-only input.
+- `too_short`: normalized content fails the total minimum or all tokens fail the token minimum.
+- `too_long`: the raw query exceeds the maximum while the configured policy is `reject`.
+- `ready`: the query may proceed to expansion and search.
+
+The default policy requires two normalized Unicode code points, accepts at most 200 raw code points, permits tokens of one or more code points, keeps the first 20 eligible tokens, and truncates excessive input. The alternative maximum policy rejects excessive input. Lengths are Unicode code-point counts, not byte or grapheme-cluster counts. All policy values are typed and validated when query processing is first resolved.
+
+The complete tokenizer output remains in `tokens`. `searchableTokens` removes short tokens and applies the maximum token count without mutating the complete list. It does not apply stop words, stemming, synonyms, or keyboard correction.
+
+Fluent query processing is lazy, so the final effective locale is authoritative and repeated execution has no stale processed state. A null builder locale uses the application locale; an explicitly empty or whitespace-only locale resolves to `und`; and a non-empty explicit locale is retained. The resolved processed locale is used consistently for normalization, expansion context, query diagnostics, and exact database locale filtering. No locale-family fallback or all-locales mode is implied. Non-ready queries are converted directly to empty `SearchResults` by the builder: expansion, driver access, ranking, search-document SQL, and model hydration are skipped. Ready original candidates reuse the processed sanitized, normalized, and searchable-token values; generated keyboard and synonym candidates retain their existing preparation path.
+
 ## Results and hydration
 
 Every search result contains its `SearchDocumentRecord`. When `source_type` is an Eloquent model class and `source_id` resolves to a record, the result also contains that model. Virtual documents, arbitrary source types, and deleted model records remain valid results with a null model.
+
+`SearchResults` also exposes its `ProcessedSearchQuery`, `status()`, and `isSearchableQuery()`. Non-searchable results have no items or models and a total of zero.
 
 ## Eloquent adapter
 

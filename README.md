@@ -36,7 +36,40 @@ $prepared->tokens;     // ['کیک', 'شکلاتی']
 
 Preparation converts supported scalar, backed-enum, `Stringable`, and nested array values; sanitizes HTML; cleans whitespace and invisible characters; normalizes for the locale; and creates ordered, unique Unicode tokens. Unsupported objects, resources, closures, and invalid UTF-8 fail with focused exceptions.
 
-Persian-family locales use Persian Core. English-family and unknown locales use conservative Unicode lowercase and whitespace normalization without Persian substitutions. An explicit locale takes precedence; integration points otherwise use the application locale where appropriate, then the configured `und` fallback.
+Persian-family locales use Persian Core. English-family and unknown locales use conservative Unicode lowercase and whitespace normalization without Persian substitutions. With fluent queries, no explicit locale uses the application locale, an explicitly empty locale resolves to `und`, and a non-empty explicit locale is used as supplied. The final resolved locale controls both text processing and exact database locale filtering.
+
+## Processing queries
+
+Raw queries are processed before expansion or database access:
+
+```php
+$processed = PersianSearch::processQuery(
+    query: '  كیك شکلاتي  ',
+    locale: 'fa',
+);
+
+$processed->status->value;      // ready
+$processed->normalizedQuery;    // کیک شکلاتی
+$processed->tokens;             // Complete tokenizer output
+$processed->searchableTokens;   // Tokens allowed by query policy
+$processed->isSearchable();
+```
+
+Statuses are `empty`, `punctuation_only`, `too_short`, `too_long`, and `ready`. Only ready queries proceed to expansion and the search driver; other statuses return empty results without querying search documents or hydrating models.
+
+Query policy defaults are configured in `config/persian-search.php`:
+
+```php
+'query' => [
+    'minimum_length' => 2,
+    'maximum_length' => 200,
+    'minimum_token_length' => 1,
+    'maximum_tokens' => 20,
+    'maximum_length_policy' => 'truncate', // truncate or reject
+],
+```
+
+Lengths count Unicode code points rather than bytes or visual grapheme clusters. Truncation occurs before sanitization and normalization. The complete `tokens` list remains diagnostic; `searchableTokens` applies minimum token length and then keeps the configured number of first eligible tokens. Invalid policy configuration throws when query processing is first resolved.
 
 ## Indexing documents
 
@@ -108,7 +141,7 @@ deletion still removes their documents.
 Document-first results include virtual records:
 
 ```php
-$results = PersianSearch::search('درباره')
+$results = PersianSearch::query('درباره')
     ->types(['page', 'brand'])
     ->partition('public')
     ->locale('fa')
@@ -130,6 +163,8 @@ $products = Product::persianSearch('كیك شکلاتي')->get();
 `SearchResults::models()` contains only successfully hydrated models. Missing Eloquent records do not invalidate document results.
 
 The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type, locale, and partition filters. Query-time synonym and wrong-keyboard candidate expansion remain configurable.
+
+The fluent `query()` and existing `search()` alias process lazily at execution time, so the final effective locale is used regardless of builder call order. The query processor, expansion context, diagnostics, and database filter all receive that same resolved locale. Non-searchable model queries return an empty collection without accessing the search table.
 
 Default text components can be replaced through Laravel's container by binding `SearchTextSanitizer`, `SearchTextNormalizer`, or `SearchTokenizer` before the pipeline is resolved.
 
