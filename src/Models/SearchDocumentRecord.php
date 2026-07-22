@@ -2,27 +2,30 @@
 
 namespace Zarbinco\PersianSearch\Models;
 
-use BackedEnum;
-use DateTimeInterface;
-use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Enumerable;
-use Stringable;
-use Traversable;
-use UnitEnum;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
-use Zarbinco\PersianSearch\Indexing\SearchField;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentHasher;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 
 /**
- * @property string $searchable_type
- * @property string $searchable_id
+ * @property int $id
+ * @property string $partition
+ * @property string $source_key
+ * @property string $source_type
+ * @property string|null $source_id
  * @property string $locale
  * @property string|null $title
- * @property string $content
- * @property array<int, string>|null $tokens
- * @property list<array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}>|null $fields
- * @property array<string, mixed>|null $metadata
+ * @property string|null $excerpt
+ * @property string|null $normalized_title
+ * @property string|null $normalized_excerpt
+ * @property string|null $normalized_keywords
+ * @property string|null $normalized_content
+ * @property array<string|int, mixed>|null $payload
+ * @property int $priority
+ * @property bool $is_active
+ * @property string $document_hash
+ * @property Carbon|null $source_updated_at
  * @property Carbon|null $indexed_at
  */
 final class SearchDocumentRecord extends Model
@@ -34,121 +37,74 @@ final class SearchDocumentRecord extends Model
         return (string) config('persian-search.index.table', 'persian_search_documents');
     }
 
+    public function getConnectionName(): ?string
+    {
+        $connection = config('persian-search.index.connection');
+
+        return is_string($connection) && trim($connection) !== ''
+            ? $connection
+            : parent::getConnectionName();
+    }
+
     /**
      * @return array<string, string>
      */
     protected function casts(): array
     {
         return [
-            'tokens' => 'array',
-            'fields' => 'array',
-            'metadata' => 'array',
+            'payload' => 'array',
+            'priority' => 'integer',
+            'is_active' => 'boolean',
+            'source_updated_at' => 'datetime',
             'indexed_at' => 'datetime',
         ];
     }
 
     /**
-     * @return array{
-     *     searchable_type: string,
-     *     searchable_id: string,
-     *     locale: string,
-     *     title: string,
-     *     content: string,
-     *     tokens: array<int, string>,
-     *     fields: list<array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}>,
-     *     metadata: array<string, mixed>,
-     *     indexed_at: Carbon
-     * }
+     * @return array<string, mixed>
      */
     public static function forDocument(SearchDocument $document): array
     {
         return [
-            'searchable_type' => $document->searchableType,
-            'searchable_id' => (string) $document->searchableId,
-            'locale' => self::localeStorageKey($document->locale),
+            ...$document->identity->toArray(),
+            'source_type' => $document->sourceType,
+            'source_id' => $document->sourceId,
             'title' => $document->title,
-            'content' => $document->content,
-            'tokens' => $document->tokens,
-            'fields' => array_map(
-                static fn (SearchField $field): array => self::fieldPayload($field),
-                $document->fields,
-            ),
-            'metadata' => $document->metadata,
+            'excerpt' => $document->excerpt,
+            'normalized_title' => $document->normalizedTitle,
+            'normalized_excerpt' => $document->normalizedExcerpt,
+            'normalized_keywords' => $document->normalizedKeywords,
+            'normalized_content' => $document->normalizedContent,
+            'payload' => self::jsonSafePayload($document->payload),
+            'priority' => $document->priority,
+            'is_active' => $document->isActive,
+            'document_hash' => $document->documentHash,
+            'source_updated_at' => $document->sourceUpdatedAt,
             'indexed_at' => now(),
         ];
     }
 
+    /**
+     * @return array{partition: string, source_key: string, locale: string}
+     */
+    public static function identityFor(SearchDocument $document): array
+    {
+        return $document->identity->toArray();
+    }
+
     public static function localeStorageKey(?string $locale): string
     {
-        return $locale ?? '';
+        return SearchDocumentIdentity::normalizeLocale($locale);
     }
 
     /**
-     * @return array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}
+     * @param  array<string|int, mixed>  $payload
+     * @return array<string|int, mixed>
      */
-    private static function fieldPayload(SearchField $field): array
+    public static function jsonSafePayload(array $payload): array
     {
-        return [
-            'name' => $field->name,
-            'raw_value' => self::jsonSafeValue($field->rawValue),
-            'value' => $field->value,
-            'tokens' => $field->tokens,
-            'weight' => $field->weight,
-        ];
-    }
+        $safe = SearchDocumentHasher::jsonSafeValue($payload);
 
-    private static function jsonSafeValue(mixed $value): mixed
-    {
-        if ($value === null || is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
-            return $value;
-        }
-
-        if ($value instanceof BackedEnum) {
-            return $value->value;
-        }
-
-        if ($value instanceof UnitEnum) {
-            return $value->name;
-        }
-
-        if ($value instanceof DateTimeInterface) {
-            return $value->format(DateTimeInterface::ATOM);
-        }
-
-        if (is_array($value)) {
-            $safe = [];
-
-            foreach ($value as $key => $item) {
-                $safe[$key] = self::jsonSafeValue($item);
-            }
-
-            return $safe;
-        }
-
-        if ($value instanceof Arrayable) {
-            return self::jsonSafeValue($value->toArray());
-        }
-
-        if ($value instanceof Enumerable) {
-            return self::jsonSafeValue($value->all());
-        }
-
-        if ($value instanceof Traversable) {
-            return self::jsonSafeValue(iterator_to_array($value, preserve_keys: false));
-        }
-
-        if ($value instanceof Stringable) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        if (is_resource($value)) {
-            return get_debug_type($value);
-        }
-
-        return null;
+        return is_array($safe) ? $safe : [];
     }
 }

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Initial release preparation.
+- Replaced the experimental model-first index with document-first identities and storage.
+- Added virtual documents, partitions, localized identities, deterministic hashes, and optional Eloquent hydration.
+- Separated raw display values from normalized searchable fields.
+- Updated the Eloquent adapter, database search driver, result objects, and maintenance commands.
 
 ## 1.0.0
 

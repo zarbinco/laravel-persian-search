@@ -2,18 +2,17 @@
 
 namespace Zarbinco\PersianSearch\Tests\Feature;
 
+use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
-use Zarbinco\PersianCore\Facades\Persian;
+use InvalidArgumentException;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
-use Zarbinco\PersianSearch\Exceptions\SearchableModelNotPersistedException;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
-use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
-use Zarbinco\PersianSearch\Indexing\SearchField;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentHasher;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Tests\TestCase;
 
@@ -22,585 +21,245 @@ final class SearchIndexStorageTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-
         config()->set('persian-search.index.sync_on_save', false);
-        config()->set('persian-search.index.delete_on_model_delete', true);
-        config()->set('persian-search.index.include_soft_deleted', false);
-
-        $this->migrateSearchIndex();
-        $this->createModelTables();
+        $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
+        $migration->up();
+        Schema::create('storage_products', function ($table): void {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->timestamps();
+        });
     }
 
-    public function test_package_migration_creates_search_documents_table(): void
+    public function test_migration_contains_exact_document_first_columns_and_no_legacy_columns(): void
     {
-        $this->assertTrue(Schema::hasTable('persian_search_documents'));
+        $expected = [
+            'id', 'partition', 'source_key', 'source_type', 'source_id', 'locale',
+            'title', 'excerpt', 'normalized_title', 'normalized_excerpt',
+            'normalized_keywords', 'normalized_content', 'payload', 'priority',
+            'is_active', 'document_hash', 'source_updated_at', 'indexed_at',
+            'created_at', 'updated_at',
+        ];
 
-        foreach ([
-            'id',
-            'searchable_type',
-            'searchable_id',
-            'locale',
-            'title',
-            'content',
-            'tokens',
-            'fields',
-            'metadata',
-            'indexed_at',
-            'created_at',
-            'updated_at',
-        ] as $column) {
-            $this->assertTrue(Schema::hasColumn('persian_search_documents', $column), "Missing column [{$column}].");
+        foreach ($expected as $column) {
+            $this->assertTrue(Schema::hasColumn('persian_search_documents', $column), "Missing [{$column}].");
+        }
+
+        foreach (['searchable_type', 'searchable_id', 'content', 'tokens', 'fields', 'metadata'] as $column) {
+            $this->assertFalse(Schema::hasColumn('persian_search_documents', $column), "Legacy column [{$column}] exists.");
         }
     }
 
-    public function test_search_document_record_uses_configurable_table_and_casts_arrays(): void
+    public function test_identity_validates_values_and_normalizes_undefined_locale(): void
     {
-        config()->set('persian-search.index.table', 'custom_persian_search_documents');
+        $identity = new SearchDocumentIdentity(' public ', ' page:about ', null);
 
-        $this->assertSame('custom_persian_search_documents', (new SearchDocumentRecord)->getTable());
+        $this->assertSame([
+            'partition' => 'public',
+            'source_key' => 'page:about',
+            'locale' => 'und',
+        ], $identity->toArray());
 
-        config()->set('persian-search.index.table', 'persian_search_documents');
+        $this->expectException(InvalidArgumentException::class);
+        new SearchDocumentIdentity(' ', 'page:about', 'fa');
+    }
 
-        $record = SearchDocumentRecord::create([
-            'searchable_type' => TestIndexedProduct::class,
-            'searchable_id' => '1',
-            'locale' => '',
-            'title' => 'كیك',
-            'content' => 'کیک',
-            'tokens' => ['کیک'],
-            'fields' => [
-                [
-                    'name' => 'name',
-                    'raw_value' => 'كیك',
-                    'value' => 'کیک',
-                    'tokens' => ['کیک'],
-                    'weight' => 10,
-                ],
-            ],
-            'metadata' => ['source' => 'test'],
-            'indexed_at' => now(),
-        ])->fresh();
+    public function test_identity_allows_locales_and_partitions_but_reindexes_one_row(): void
+    {
+        PersianSearch::indexDocument($this->document(title: 'نسخه اول'));
+        PersianSearch::indexDocument($this->document(title: 'نسخه دوم'));
+        PersianSearch::indexDocument($this->document(locale: 'en', title: 'English'));
+        PersianSearch::indexDocument($this->document(partition: 'admin', title: 'مدیریت'));
+
+        $this->assertSame(3, SearchDocumentRecord::count());
+        $this->assertSame('نسخه دوم', SearchDocumentRecord::query()
+            ->where('partition', 'public')->where('locale', 'fa')->value('title'));
+    }
+
+    public function test_source_id_values_are_canonical_in_the_dto_hash_and_database(): void
+    {
+        $integer = $this->document(sourceId: 123, sourceKey: 'product:canonical');
+        $string = $this->document(sourceId: '123', sourceKey: 'product:canonical');
+        $padded = $this->document(sourceId: '00123', sourceKey: 'product:canonical');
+        $ulid = '01J9ZXYZABCDEF123456789012';
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+
+        $this->assertSame('123', $integer->sourceId);
+        $this->assertSame('123', $string->sourceId);
+        $this->assertSame($integer->meaningfulData()['source_id'], $string->meaningfulData()['source_id']);
+        $this->assertSame($integer->documentHash, $string->documentHash);
+        $this->assertSame('00123', $padded->sourceId);
+        $this->assertNotSame($padded->sourceId, $string->sourceId);
+        $this->assertNotSame($padded->documentHash, $string->documentHash);
+        $this->assertSame($ulid, $this->document(sourceId: $ulid)->sourceId);
+        $this->assertSame($uuid, $this->document(sourceId: $uuid)->sourceId);
+
+        PersianSearch::indexDocument($this->document(sourceId: null, sourceKey: 'page:about'));
+        PersianSearch::indexDocument($integer);
+        PersianSearch::indexDocument($this->document(sourceId: $ulid, sourceKey: 'product:ulid'));
+        PersianSearch::indexDocument($this->document(sourceId: $uuid, sourceKey: 'product:uuid'));
+
+        $this->assertNull(SearchDocumentRecord::query()->where('source_key', 'page:about')->value('source_id'));
+        $this->assertSame($integer->sourceId, SearchDocumentRecord::query()->where('source_key', 'product:canonical')->value('source_id'));
+        $this->assertSame($ulid, SearchDocumentRecord::query()->where('source_key', 'product:ulid')->value('source_id'));
+        $this->assertSame($uuid, SearchDocumentRecord::query()->where('source_key', 'product:uuid')->value('source_id'));
+    }
+
+    public function test_document_and_source_deletion_use_document_identities(): void
+    {
+        PersianSearch::indexDocument($this->document(locale: 'fa'));
+        PersianSearch::indexDocument($this->document(locale: 'en'));
+
+        $this->assertSame(1, PersianSearch::deleteDocument(new SearchDocumentIdentity('public', 'page:home', 'fa')));
+        $this->assertSame(1, PersianSearch::deleteSource('page:home', 'public'));
+        $this->assertSame(0, SearchDocumentRecord::count());
+    }
+
+    public function test_record_casts_payload_flags_numbers_and_timestamps(): void
+    {
+        $record = PersianSearch::indexDocument($this->document(
+            payload: ['nested' => ['when' => new DateTimeImmutable('2026-01-01T00:00:00+00:00')]],
+            sourceUpdatedAt: new DateTimeImmutable('2026-02-03T04:05:06+00:00'),
+        ));
+        $record = $record->fresh();
 
         $this->assertInstanceOf(SearchDocumentRecord::class, $record);
-        $this->assertSame(['کیک'], $record->tokens);
-        $this->assertSame('name', $this->firstStoredField($record)['name']);
-        $this->assertSame(['source' => 'test'], $record->metadata);
+        $this->assertIsArray($record->payload);
+        $this->assertSame('2026-01-01T00:00:00.000000Z', $record->payload['nested']['when']);
+        $this->assertTrue($record->is_active);
+        $this->assertSame(10, $record->priority);
+        $this->assertNotNull($record->source_updated_at);
         $this->assertNotNull($record->indexed_at);
     }
 
-    public function test_manual_indexing_persists_document_payload(): void
+    public function test_hash_is_stable_across_nested_payload_order_and_changes_for_meaningful_data(): void
     {
-        $model = TestIndexedProduct::create([
-            'name' => 'كیكِ شکلاتي',
-            'description' => 'آب‌میوه سن‌ایچ',
-        ]);
+        $left = $this->document(payload: ['b' => ['y' => 2, 'x' => 1], 'a' => 3]);
+        $right = $this->document(payload: ['a' => 3, 'b' => ['x' => 1, 'y' => 2]]);
+        $changed = $this->document(payload: ['a' => 4, 'b' => ['x' => 1, 'y' => 2]]);
 
-        $record = PersianSearch::index($model);
-        $document = app(SearchDocumentBuilder::class)->build($model);
+        $hasher = new SearchDocumentHasher;
+        $this->assertSame($left->documentHash, $right->documentHash);
+        $this->assertSame($hasher->hash($left), $left->documentHash);
+        $this->assertNotSame($left->documentHash, $changed->documentHash);
 
-        $this->assertInstanceOf(SearchDocumentRecord::class, $record);
-        $this->assertDatabaseCount('persian_search_documents', 1);
-        $this->assertSame(TestIndexedProduct::class, $record->searchable_type);
-        $this->assertSame((string) $model->getKey(), $record->searchable_id);
-        $this->assertSame('', $record->locale);
-        $this->assertSame($document->title, $record->title);
-        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $record->title);
-        $this->assertSame($document->content, $record->content);
-        $this->assertSame($document->tokens, $record->tokens);
-        $storedField = $this->firstStoredField($record);
+        $base = $this->document();
+        $variants = [
+            $this->document(partition: 'admin'),
+            $this->document(sourceKey: 'page:other'),
+            $this->document(sourceType: 'brand'),
+            $this->document(sourceId: '123'),
+            $this->document(locale: 'en'),
+            $this->document(title: 'عنوان دیگر'),
+            $this->document(excerpt: 'خلاصه دیگر'),
+            $this->document(normalizedTitle: 'عنوان نرمال دیگر'),
+            $this->document(normalizedExcerpt: 'خلاصه نرمال دیگر'),
+            $this->document(normalizedKeywords: 'کلیدواژه دیگر'),
+            $this->document(normalizedContent: 'متن دیگر'),
+            $this->document(priority: 11),
+            $this->document(isActive: false),
+            $this->document(sourceUpdatedAt: new DateTimeImmutable('2026-01-01T00:00:00Z')),
+        ];
 
-        $this->assertSame($document->fields[0]->toArray(), $storedField);
-        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $storedField['value']);
-        $this->assertSame(Persian::search('كیكِ شکلاتي')->tokens(), $storedField['tokens']);
+        foreach ($variants as $variant) {
+            $this->assertNotSame($base->documentHash, $variant->documentHash);
+        }
     }
 
-    public function test_persisted_field_payloads_are_json_safe_for_complex_raw_values(): void
+    public function test_model_deletion_removes_every_locale_document_owned_by_the_model(): void
     {
-        $model = ComplexPayloadIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-            'payload' => [
-                'primary' => 'آب‌میوه',
-                'nested' => [
-                    'brand' => 'سن‌ایچ',
-                ],
-            ],
-            'status' => TestStorageStatus::Featured,
-            'label_object' => 'برچسب',
-        ]);
-
-        $record = PersianSearch::index($model)->fresh();
-        $document = app(SearchDocumentBuilder::class)->build($model);
-
-        $this->assertInstanceOf(SearchDocumentRecord::class, $record);
-        $this->assertIsArray($record->fields);
-        $encodedFields = json_encode($record->fields, JSON_THROW_ON_ERROR);
-
-        $this->assertIsArray(json_decode($encodedFields, true, 512, JSON_THROW_ON_ERROR));
-
-        $payloadField = $this->storedFieldByName($record, 'payload');
-        $statusField = $this->storedFieldByName($record, 'status');
-        $stringableField = $this->storedFieldByName($record, 'label_object');
-
-        $this->assertSame([
-            'primary' => 'آب‌میوه',
-            'nested' => [
-                'brand' => 'سن‌ایچ',
-            ],
-        ], $payloadField['raw_value']);
-        $this->assertSame('featured', $statusField['raw_value']);
-        $this->assertSame('برچسب', $stringableField['raw_value']);
-
-        $this->assertStoredFieldMatchesDocumentField($payloadField, $this->documentFieldByName($document, 'payload'));
-        $this->assertStoredFieldMatchesDocumentField($statusField, $this->documentFieldByName($document, 'status'));
-        $this->assertStoredFieldMatchesDocumentField($stringableField, $this->documentFieldByName($document, 'label_object'));
-    }
-
-    public function test_indexing_same_model_updates_existing_row(): void
-    {
-        $model = TestIndexedProduct::create([
-            'name' => 'كیك ساده',
-            'description' => 'توضیح اولیه',
-        ]);
-
+        $model = StorageProduct::create(['title' => 'محصول']);
         PersianSearch::index($model);
+        $base = $model->toPersianSearchDocument();
+        PersianSearch::indexDocument(new SearchDocument(
+            partition: $base->partition(), sourceKey: $base->sourceKey(), sourceType: $base->sourceType,
+            sourceId: $base->sourceId, locale: 'fa', title: $base->title, excerpt: null,
+            normalizedTitle: $base->normalizedTitle, normalizedExcerpt: null, normalizedKeywords: null,
+            normalizedContent: $base->normalizedContent,
+        ));
 
-        $model->forceFill([
-            'name' => 'كیكِ شکلاتي',
-        ])->save();
-
-        PersianSearch::index($model);
-
-        $this->assertDatabaseCount('persian_search_documents', 1);
-
-        $record = SearchDocumentRecord::firstOrFail();
-
-        $this->assertStringContainsString(Persian::search('كیكِ شکلاتي')->normalize(), $record->content);
+        $this->assertSame(2, SearchDocumentRecord::count());
+        $this->assertSame(2, $model->deletePersianSearchDocument());
+        $this->assertSame(0, SearchDocumentRecord::count());
     }
 
-    public function test_delete_from_index_removes_document(): void
+    public function test_record_honors_configurable_table_and_connection(): void
     {
-        $model = TestIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
+        config()->set('persian-search.index.table', 'custom_documents');
+        config()->set('persian-search.index.connection', 'testing');
 
-        PersianSearch::index($model);
-
-        $this->assertSame(1, PersianSearch::deleteFromIndex($model));
-        $this->assertDatabaseCount('persian_search_documents', 0);
+        $record = new SearchDocumentRecord;
+        $this->assertSame('custom_documents', $record->getTable());
+        $this->assertSame('testing', $record->getConnectionName());
     }
 
-    public function test_flush_index_removes_matching_model_documents_only(): void
+    public function test_reindex_and_flush_commands_use_source_type(): void
     {
-        $product = TestIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-        $otherProduct = OtherIndexedProduct::create([
-            'name' => 'آب‌میوه',
-            'description' => 'توضیح',
-        ]);
+        StorageProduct::create(['title' => 'اول']);
+        StorageProduct::create(['title' => 'دوم']);
+        $this->assertSame(2, StorageProduct::count());
 
-        PersianSearch::index($product);
-        PersianSearch::index($otherProduct);
+        $reindex = $this->artisan('persian-search:reindex', ['model' => StorageProduct::class]);
+        $this->assertInstanceOf(PendingCommand::class, $reindex);
+        $reindex->expectsOutputToContain('Indexed 2 Persian search document(s).');
+        $this->assertSame(0, $reindex->run());
+        $this->assertSame(2, SearchDocumentRecord::count());
 
-        $this->assertSame(1, PersianSearch::flushIndex(TestIndexedProduct::class));
-        $this->assertDatabaseCount('persian_search_documents', 1);
-        $this->assertSame(OtherIndexedProduct::class, SearchDocumentRecord::firstOrFail()->searchable_type);
+        PersianSearch::index(StorageProduct::query()->firstOrFail());
+        $this->assertSame(2, SearchDocumentRecord::count());
 
-        $this->assertSame(1, PersianSearch::flushIndex());
-        $this->assertDatabaseCount('persian_search_documents', 0);
+        $flush = $this->artisan('persian-search:flush', ['sourceType' => StorageProduct::class, '--force' => true]);
+        $this->assertInstanceOf(PendingCommand::class, $flush);
+        $flush->expectsOutputToContain('Deleted 2 Persian search document(s).');
+        $this->assertSame(0, $flush->run());
+        $this->assertSame(0, SearchDocumentRecord::count());
     }
 
-    public function test_trait_convenience_methods_persist_and_delete_index(): void
+    public function test_install_command_is_registered_and_succeeds(): void
     {
-        $model = TestIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-
-        $this->assertInstanceOf(SearchDocumentRecord::class, $model->savePersianSearchDocument());
-        $this->assertDatabaseCount('persian_search_documents', 1);
-        $this->assertSame(1, $model->deletePersianSearchDocument());
-        $this->assertDatabaseCount('persian_search_documents', 0);
+        $install = $this->artisan('persian-search:install');
+        $this->assertInstanceOf(PendingCommand::class, $install);
+        $install->assertSuccessful();
     }
 
-    public function test_automatic_sync_on_save_and_delete(): void
-    {
-        config()->set('persian-search.index.sync_on_save', true);
-
-        $model = TestIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-
-        $this->assertDatabaseCount('persian_search_documents', 1);
-
-        $model->forceFill([
-            'name' => 'آب‌میوه',
-        ])->save();
-
-        $record = SearchDocumentRecord::firstOrFail();
-
-        $this->assertStringContainsString(Persian::search('آب‌میوه')->normalize(), $record->content);
-
-        $model->delete();
-
-        $this->assertDatabaseCount('persian_search_documents', 0);
-    }
-
-    public function test_soft_deleted_models_are_removed_and_restored_models_are_reindexed(): void
-    {
-        config()->set('persian-search.index.sync_on_save', true);
-
-        $model = SoftDeletedIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-
-        $this->assertDatabaseCount('persian_search_documents', 1);
-
-        $model->delete();
-
-        $this->assertDatabaseCount('persian_search_documents', 0);
-
-        $model->restore();
-
-        $this->assertDatabaseCount('persian_search_documents', 1);
-    }
-
-    public function test_unsaved_model_guard(): void
-    {
-        $this->expectException(SearchableModelNotPersistedException::class);
-
-        PersianSearch::index(new TestIndexedProduct([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]));
-    }
-
-    public function test_invalid_model_guard(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-
-        PersianSearch::index(PlainIndexedModel::create([
-            'name' => 'كیك',
-        ]));
-    }
-
-    public function test_console_commands_run_expected_storage_actions(): void
-    {
-        $this->assertArtisanSucceeds('persian-search:install');
-
-        TestIndexedProduct::create([
-            'name' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-
-        $this->assertArtisanSucceeds('persian-search:reindex', [
-            'model' => TestIndexedProduct::class,
-            '--fresh' => true,
-            '--chunk' => 1,
-        ]);
-
-        $this->assertDatabaseCount('persian_search_documents', 1);
-
-        $this->assertArtisanSucceeds('persian-search:flush', [
-            'model' => TestIndexedProduct::class,
-        ]);
-
-        $this->assertDatabaseCount('persian_search_documents', 0);
-
-        PersianSearch::index(TestIndexedProduct::firstOrFail());
-
-        $this->assertArtisanSucceeds('persian-search:flush', [
-            '--force' => true,
-        ]);
-
-        $this->assertDatabaseCount('persian_search_documents', 0);
-    }
-
-    public function test_regression_no_persian_search_query_scope_is_added(): void
-    {
-        $sourceFiles = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(__DIR__.'/../../src'),
+    /** @param  array<string|int, mixed>  $payload */
+    private function document(
+        string $partition = 'public',
+        string $sourceKey = 'page:home',
+        string $sourceType = 'page',
+        int|string|null $sourceId = null,
+        ?string $locale = 'fa',
+        ?string $title = 'خانه',
+        ?string $excerpt = 'معرفی',
+        ?string $normalizedTitle = 'خانه',
+        ?string $normalizedExcerpt = 'معرفی',
+        ?string $normalizedKeywords = 'شرکت',
+        ?string $normalizedContent = 'محتوا',
+        array $payload = [],
+        int $priority = 10,
+        bool $isActive = true,
+        ?DateTimeImmutable $sourceUpdatedAt = null,
+    ): SearchDocument {
+        return new SearchDocument(
+            partition: $partition, sourceKey: $sourceKey, sourceType: $sourceType, sourceId: $sourceId,
+            locale: $locale, title: $title, excerpt: $excerpt, normalizedTitle: $normalizedTitle,
+            normalizedExcerpt: $normalizedExcerpt, normalizedKeywords: $normalizedKeywords, normalizedContent: $normalizedContent,
+            payload: $payload, priority: $priority, isActive: $isActive, sourceUpdatedAt: $sourceUpdatedAt,
         );
-
-        foreach ($sourceFiles as $file) {
-            if (! $file->isFile() || $file->getExtension() !== 'php') {
-                continue;
-            }
-
-            $contents = file_get_contents($file->getPathname());
-
-            $this->assertIsString($contents);
-            $this->assertStringNotContainsString('scopePersianSearch', $contents);
-        }
-    }
-
-    private function migrateSearchIndex(): void
-    {
-        $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
-        $migration->up();
-    }
-
-    private function createModelTables(): void
-    {
-        Schema::create('persian_search_test_products', function ($table): void {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->text('description')->nullable();
-            $table->text('payload')->nullable();
-            $table->string('status')->nullable();
-            $table->string('label_object')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('plain_indexed_models', function ($table): void {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->timestamps();
-        });
-    }
-
-    /**
-     * @return array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}
-     */
-    private function firstStoredField(SearchDocumentRecord $record): array
-    {
-        $fields = $record->fields;
-        $this->assertIsArray($fields);
-
-        $field = $fields[0] ?? null;
-
-        return $this->storedFieldShape($field);
-    }
-
-    /**
-     * @return array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}
-     */
-    private function storedFieldByName(SearchDocumentRecord $record, string $name): array
-    {
-        $fields = $record->fields;
-        $this->assertIsArray($fields);
-
-        foreach ($fields as $field) {
-            $storedField = $this->storedFieldShape($field);
-
-            if ($storedField['name'] === $name) {
-                return $storedField;
-            }
-        }
-
-        throw new \RuntimeException("Stored field [{$name}] was not found.");
-    }
-
-    /**
-     * @return array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}
-     */
-    private function storedFieldShape(mixed $field): array
-    {
-        $this->assertIsArray($field);
-        $this->assertArrayHasKey('name', $field);
-        $this->assertArrayHasKey('raw_value', $field);
-        $this->assertArrayHasKey('value', $field);
-        $this->assertArrayHasKey('tokens', $field);
-        $this->assertArrayHasKey('weight', $field);
-
-        $name = $field['name'];
-        $value = $field['value'];
-        $tokens = $field['tokens'];
-        $weight = $field['weight'];
-
-        $this->assertIsString($name);
-        $this->assertIsString($value);
-        $this->assertIsArray($tokens);
-        $this->assertTrue(is_int($weight) || is_float($weight));
-
-        $safeTokens = [];
-
-        foreach ($tokens as $token) {
-            $this->assertIsString($token);
-            $safeTokens[] = $token;
-        }
-
-        return [
-            'name' => $name,
-            'raw_value' => $field['raw_value'],
-            'value' => $value,
-            'tokens' => $safeTokens,
-            'weight' => $weight,
-        ];
-    }
-
-    private function documentFieldByName(SearchDocument $document, string $name): SearchField
-    {
-        foreach ($document->fields as $field) {
-            if ($field->name === $name) {
-                return $field;
-            }
-        }
-
-        throw new \RuntimeException("Document field [{$name}] was not found.");
-    }
-
-    /**
-     * @param  array{name: string, raw_value: mixed, value: string, tokens: array<int, string>, weight: int|float}  $storedField
-     */
-    private function assertStoredFieldMatchesDocumentField(array $storedField, SearchField $documentField): void
-    {
-        $this->assertSame($documentField->name, $storedField['name']);
-        $this->assertSame($documentField->value, $storedField['value']);
-        $this->assertSame($documentField->tokens, $storedField['tokens']);
-        $this->assertSame($documentField->weight, $storedField['weight']);
-    }
-
-    /**
-     * @param  array<string, mixed>  $parameters
-     */
-    private function assertArtisanSucceeds(string $command, array $parameters = []): void
-    {
-        $result = $this->artisan($command, $parameters);
-
-        if ($result instanceof PendingCommand) {
-            $result->assertExitCode(0);
-
-            return;
-        }
-
-        $this->assertSame(0, $result);
     }
 }
 
-final class TestIndexedProduct extends Model implements PersianSearchable
+final class StorageProduct extends Model implements PersianSearchable
 {
     use HasPersianSearch;
 
-    protected $table = 'persian_search_test_products';
+    protected $table = 'storage_products';
 
     protected $guarded = [];
 
-    /**
-     * @return array<int|string, string|int|float>
-     */
+    /** @return array<int|string, string|int|float> */
     public function persianSearchableFields(): array
     {
-        return [
-            'name' => 10,
-            'description' => 1,
-        ];
-    }
-
-    public function persianSearchLocale(): ?string
-    {
-        return null;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function persianSearchMetadata(): array
-    {
-        return [
-            'source' => 'storage-test',
-        ];
-    }
-}
-
-final class OtherIndexedProduct extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-
-    protected $table = 'persian_search_test_products';
-
-    protected $guarded = [];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'name' => 10,
-            'description' => 1,
-        ];
-    }
-}
-
-final class SoftDeletedIndexedProduct extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-    use SoftDeletes;
-
-    protected $table = 'persian_search_test_products';
-
-    protected $guarded = [];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'name' => 10,
-            'description' => 1,
-        ];
-    }
-}
-
-final class PlainIndexedModel extends Model
-{
-    protected $table = 'plain_indexed_models';
-
-    protected $guarded = [];
-}
-
-final class ComplexPayloadIndexedProduct extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-
-    protected $table = 'persian_search_test_products';
-
-    protected $guarded = [];
-
-    protected $casts = [
-        'payload' => 'array',
-        'status' => TestStorageStatus::class,
-    ];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'payload' => 2,
-            'status' => 3,
-            'label_object' => 4,
-        ];
-    }
-
-    public function getLabelObjectAttribute(?string $value): TestStringableFieldValue
-    {
-        return new TestStringableFieldValue($value ?? '');
-    }
-}
-
-enum TestStorageStatus: string
-{
-    case Featured = 'featured';
-}
-
-final readonly class TestStringableFieldValue implements \Stringable
-{
-    public function __construct(
-        private string $value,
-    ) {}
-
-    public function __toString(): string
-    {
-        return $this->value;
+        return ['title'];
     }
 }

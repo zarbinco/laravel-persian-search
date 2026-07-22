@@ -5,7 +5,7 @@ namespace Zarbinco\PersianSearch\Contracts;
 interface PersianSearchable
 {
     /**
-     * Return searchable fields and optional weights.
+     * Return fields whose values are aggregated into normalized document content.
      *
      * Supported examples:
      *
@@ -19,6 +19,8 @@ interface PersianSearchable
      *     'brand.name' => 5,
      *     'description' => 1,
      * ]
+     *
+     * Weights are accepted for the Eloquent convenience API but are not persisted.
      *
      * @return array<int|string, string|int|float>
      */

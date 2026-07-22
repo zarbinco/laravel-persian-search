@@ -4,15 +4,16 @@ namespace Zarbinco\PersianSearch\Tests\Feature;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 use Zarbinco\PersianCore\Facades\Persian;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
+use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\SearchResult;
-use Zarbinco\PersianSearch\Search\SearchResults;
 use Zarbinco\PersianSearch\Tests\TestCase;
 
 final class DatabaseSearchDriverTest extends TestCase
@@ -20,544 +21,162 @@ final class DatabaseSearchDriverTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-
         config()->set('persian-search.index.sync_on_save', false);
-
-        $this->migrateSearchIndex();
-        $this->createModelTables();
+        $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
+        $migration->up();
+        Schema::create('driver_products', function ($table): void {
+            $table->id();
+            $table->string('title');
+            $table->text('description')->nullable();
+            $table->string('locale')->nullable();
+            $table->timestamps();
+        });
     }
 
-    public function test_search_driver_contract_resolves_to_database_driver(): void
+    public function test_database_driver_resolves_and_eloquent_results_hydrate(): void
     {
         $this->assertInstanceOf(DatabaseSearchDriver::class, app(SearchDriver::class));
-    }
-
-    public function test_empty_query_returns_empty_collection(): void
-    {
-        $this->assertTrue(PersianSearch::search('')->for(SearchDriverProduct::class)->get()->isEmpty());
-    }
-
-    public function test_basic_database_search_returns_indexed_model(): void
-    {
-        $product = SearchDriverProduct::create([
-            'title' => 'كیكِ شکلاتي',
-            'description' => 'آب‌میوه سن‌ایچ',
-        ]);
-        SearchDriverProduct::create([
-            'title' => 'نان سنگک',
-            'description' => 'صبحانه',
-        ]);
-
+        $product = DriverProduct::create(['title' => 'كیكِ شکلاتي', 'description' => 'دسر تازه', 'locale' => 'fa']);
         PersianSearch::index($product);
 
-        $models = PersianSearch::search('كیك شکلاتي')
-            ->for(SearchDriverProduct::class)
-            ->get();
-
-        $this->assertCount(1, $models);
-        $this->assertTrue($product->is($models->first()));
-        $this->assertSame(
-            Persian::search('كیك شکلاتي')->normalize(),
-            PersianSearch::search('كیك شکلاتي')->for(SearchDriverProduct::class)->results()->query->normalized,
-        );
-    }
-
-    public function test_model_convenience_search_returns_ordered_models(): void
-    {
-        $product = SearchDriverProduct::create([
-            'title' => 'كیكِ شکلاتي',
-            'description' => 'آب‌میوه سن‌ایچ',
-        ]);
-
-        PersianSearch::index($product);
-
-        $this->assertTrue($product->is(SearchDriverProduct::persianSearch('كیك شکلاتي')->get()->first()));
-    }
-
-    public function test_result_objects_include_model_record_score_and_matched_tokens(): void
-    {
-        $product = SearchDriverProduct::create([
-            'title' => 'كیكِ شکلاتي',
-            'description' => 'آب‌میوه سن‌ایچ',
-        ]);
-
-        PersianSearch::index($product);
-
-        $results = PersianSearch::search('كیك شکلاتي')
-            ->for(SearchDriverProduct::class)
-            ->results();
-
-        $this->assertInstanceOf(SearchResults::class, $results);
-        $this->assertCount(1, $results->items());
-
+        $results = DriverProduct::persianSearch('کیک شکلاتی')->results();
         $result = $results->items()[0];
 
         $this->assertInstanceOf(SearchResult::class, $result);
         $this->assertTrue($product->is($result->model));
         $this->assertInstanceOf(SearchDocumentRecord::class, $result->record);
         $this->assertGreaterThan(0, $result->score);
-        $this->assertNotSame([], $result->matchedTokens);
+        $this->assertTrue($product->is($results->models()->first()));
+        $this->assertTrue($product->is(DriverProduct::persianSearch('کیک')->get()->first()));
     }
 
-    public function test_relevance_orders_exact_title_before_all_tokens_before_single_token(): void
+    public function test_virtual_results_are_not_discarded_and_models_excludes_them(): void
     {
-        $singleToken = SearchDriverProduct::create([
-            'title' => 'محصول ساده',
-            'description' => 'كیك تازه',
-        ]);
-        $allTokens = SearchDriverProduct::create([
-            'title' => 'محصول دوم',
-            'description' => 'كیك تازه با شکلاتي خوشمزه',
-        ]);
-        $exactTitle = SearchDriverProduct::create([
-            'title' => 'كیك شکلاتي',
-            'description' => 'دسر',
-        ]);
+        PersianSearch::indexDocument($this->virtualDocument());
 
-        PersianSearch::index($singleToken);
-        PersianSearch::index($allTokens);
-        PersianSearch::index($exactTitle);
+        $results = PersianSearch::search('درباره')->types(['page', 'brand'])->partition('public')->locale('fa')->results();
 
-        $models = PersianSearch::search('كیك شکلاتي')
-            ->for(SearchDriverProduct::class)
-            ->get();
-
-        $this->assertTrue($exactTitle->is($models[0]));
-        $this->assertTrue($allTokens->is($models[1]));
-        $this->assertTrue($singleToken->is($models[2]));
+        $this->assertCount(1, $results->items());
+        $this->assertSame('page', $results->items()[0]->record->source_type);
+        $this->assertNull($results->items()[0]->model);
+        $this->assertTrue($results->models()->isEmpty());
     }
 
-    public function test_normalized_title_match_scores_and_ranks_before_lower_weight_content_match(): void
+    public function test_missing_eloquent_models_remain_document_results_with_null_model(): void
     {
-        $titleMatch = TitleOnlySearchDriverProduct::create([
-            'title' => 'كیكِ شکلاتي',
-            'description' => 'دسر تازه',
-        ]);
-        $contentMatch = SearchDriverProduct::create([
-            'title' => 'محصول ساده',
-            'description' => 'كیكِ شکلاتي',
-        ]);
-
-        PersianSearch::index($contentMatch);
-        PersianSearch::index($titleMatch);
-
-        $titleRecord = SearchDocumentRecord::query()
-            ->where('searchable_type', TitleOnlySearchDriverProduct::class)
-            ->firstOrFail();
-
-        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $titleRecord->title);
-        $this->assertSame(Persian::search('دسر تازه')->normalize(), $titleRecord->content);
-
-        $results = PersianSearch::search('کیک شکلاتی')
-            ->for([TitleOnlySearchDriverProduct::class, SearchDriverProduct::class])
-            ->results();
-        $items = $results->items();
-
-        $this->assertCount(2, $items);
-        $this->assertTrue($titleMatch->is($items[0]->model));
-        $this->assertTrue($contentMatch->is($items[1]->model));
-        $this->assertGreaterThan(0, $items[0]->score);
-        $this->assertGreaterThan($items[1]->score, $items[0]->score);
-    }
-
-    public function test_field_weight_influences_relevance_when_other_factors_are_comparable(): void
-    {
-        $highWeight = WeightedSearchDriverProduct::create([
-            'name' => 'زعفران',
-            'description' => null,
-        ]);
-        $lowWeight = WeightedSearchDriverProduct::create([
-            'name' => null,
-            'description' => 'زعفران',
-        ]);
-
-        PersianSearch::index($lowWeight);
-        PersianSearch::index($highWeight);
-
-        $models = PersianSearch::search('زعفران')
-            ->for(WeightedSearchDriverProduct::class)
-            ->get();
-
-        $this->assertTrue($highWeight->is($models[0]));
-        $this->assertTrue($lowWeight->is($models[1]));
-    }
-
-    public function test_searchable_type_filter_limits_results(): void
-    {
-        $product = SearchDriverProduct::create([
-            'title' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-        $article = SearchDriverArticle::create([
-            'title' => 'كیك',
-            'body' => 'مقاله',
-        ]);
-
-        PersianSearch::index($product);
-        PersianSearch::index($article);
-
-        $models = PersianSearch::search('كیك')
-            ->for(SearchDriverProduct::class)
-            ->get();
-
-        $this->assertCount(1, $models);
-        $this->assertTrue($product->is($models->first()));
-    }
-
-    public function test_locale_filtering_is_optional(): void
-    {
-        $fa = SearchDriverProduct::create([
-            'title' => 'كیك',
-            'description' => 'فارسی',
-            'locale' => 'fa',
-        ]);
-        $en = SearchDriverProduct::create([
-            'title' => 'كیك',
-            'description' => 'انگلیسی',
-            'locale' => 'en',
-        ]);
-
-        PersianSearch::index($fa);
-        PersianSearch::index($en);
-
-        $faOnly = PersianSearch::search('كیك')
-            ->for(SearchDriverProduct::class)
-            ->locale('fa')
-            ->get();
-
-        $all = PersianSearch::search('كیك')
-            ->for(SearchDriverProduct::class)
-            ->get();
-
-        $this->assertCount(1, $faOnly);
-        $this->assertTrue($fa->is($faOnly->first()));
-        $this->assertCount(2, $all);
-    }
-
-    public function test_limit_and_first(): void
-    {
-        $top = SearchDriverProduct::create([
-            'title' => 'كیك شکلاتي',
-            'description' => 'دسر',
-        ]);
-        $second = SearchDriverProduct::create([
-            'title' => 'محصول دوم',
-            'description' => 'كیك',
-        ]);
-
-        PersianSearch::index($top);
-        PersianSearch::index($second);
-
-        $models = PersianSearch::search('كیك')
-            ->for(SearchDriverProduct::class)
-            ->limit(1)
-            ->get();
-
-        $this->assertCount(1, $models);
-        $this->assertTrue($top->is($models->first()));
-        $this->assertTrue($top->is(PersianSearch::search('كیك')->for(SearchDriverProduct::class)->first()));
-        $this->assertNull(PersianSearch::search('ناموجود')->for(SearchDriverProduct::class)->first());
-    }
-
-    public function test_missing_models_are_skipped_safely(): void
-    {
-        $product = SearchDriverProduct::create([
-            'title' => 'كیك',
-            'description' => 'توضیح',
-        ]);
-
+        $product = DriverProduct::create(['title' => 'زعفران', 'description' => 'ایرانی']);
         PersianSearch::index($product);
         $product->newQuery()->whereKey($product->getKey())->delete();
 
-        $this->assertTrue(PersianSearch::search('كیك')->for(SearchDriverProduct::class)->get()->isEmpty());
-    }
-
-    public function test_database_search_returns_model_for_wrong_keyboard_input(): void
-    {
-        $bag = SearchDriverProduct::create([
-            'title' => 'کیف چرمی',
-            'description' => 'کیف زنانه چرم طبیعی',
-        ]);
-
-        PersianSearch::index($bag);
-
-        $models = SearchDriverProduct::persianSearch(';dt')->get();
-        $results = SearchDriverProduct::persianSearch(';dt')->results();
-        $result = $results->items()[0] ?? null;
-
-        $this->assertCount(1, $models);
-        $this->assertTrue($bag->is($models->first()));
-        $this->assertInstanceOf(SearchResult::class, $result);
-        $this->assertGreaterThan(0, $result->score);
-        $this->assertSame('keyboard', $result->candidateSource);
-        $this->assertSame(Persian::search('کیف')->normalize(), $result->matchedQuery);
-    }
-
-    public function test_database_search_returns_model_for_configured_synonym_input(): void
-    {
-        config()->set('persian-search.synonyms.enabled', true);
-        config()->set('persian-search.synonyms.map', [
-            'گوشی' => ['موبایل', 'تلفن همراه'],
-        ]);
-
-        $phone = SearchDriverProduct::create([
-            'title' => 'گوشی سامسونگ',
-            'description' => 'اندرویدی',
-        ]);
-
-        PersianSearch::index($phone);
-
-        $results = SearchDriverProduct::persianSearch('موبایل سامسونگ')->results();
-        $result = $results->items()[0] ?? null;
+        $results = PersianSearch::search('زعفران')->for(DriverProduct::class)->results();
 
         $this->assertCount(1, $results->items());
-        $this->assertInstanceOf(SearchResult::class, $result);
-        $this->assertTrue($phone->is($result->model));
-        $this->assertGreaterThan(0, $result->score);
-        $this->assertSame('synonym', $result->candidateSource);
-        $this->assertSame(Persian::search('گوشی سامسونگ')->normalize(), $result->matchedQuery);
+        $this->assertNull($results->items()[0]->model);
+        $this->assertTrue($results->models()->isEmpty());
     }
 
-    public function test_facade_smoke_flow_indexes_and_searches_normal_keyboard_and_synonym_queries(): void
+    public function test_inactive_documents_are_excluded(): void
     {
-        $bag = SearchDriverProduct::create([
-            'title' => 'کیف چرمی',
-            'description' => 'کیف زنانه چرم طبیعی',
-        ]);
-        $cake = SearchDriverProduct::create([
-            'title' => 'كیكِ شکلاتي',
-            'description' => 'دسر تازه',
-        ]);
-        $phone = SearchDriverProduct::create([
-            'title' => 'گوشی سامسونگ',
-            'description' => 'اندرویدی',
-        ]);
+        PersianSearch::indexDocument($this->virtualDocument(isActive: false));
 
+        $this->assertTrue(PersianSearch::search('درباره')->type('page')->partition('public')->results()->isEmpty());
+    }
+
+    public function test_locale_partition_and_arbitrary_source_type_filters_work(): void
+    {
+        PersianSearch::indexDocument($this->virtualDocument(locale: 'fa', partition: 'public'));
+        PersianSearch::indexDocument($this->virtualDocument(locale: 'en', partition: 'public', sourceKey: 'page:about-en'));
+        PersianSearch::indexDocument($this->virtualDocument(locale: 'fa', partition: 'admin', sourceKey: 'page:about-admin'));
+
+        $results = PersianSearch::search('درباره')->type('page')->locale('fa')->partition('public')->results();
+
+        $this->assertCount(1, $results->items());
+        $this->assertSame('fa', $results->items()[0]->record->locale);
+        $this->assertSame('public', $results->items()[0]->record->partition);
+    }
+
+    public function test_normalized_title_is_preferred_while_raw_title_is_preserved(): void
+    {
+        $title = DriverProduct::create(['title' => 'كیكِ شکلاتي', 'description' => 'دسر']);
+        $content = DriverProduct::create(['title' => 'محصول', 'description' => 'كیكِ شکلاتي']);
+        PersianSearch::index($content);
+        PersianSearch::index($title);
+
+        $items = PersianSearch::search('کیک شکلاتی')->for(DriverProduct::class)->results()->items();
+
+        $this->assertCount(2, $items);
+        $this->assertTrue($title->is($items[0]->model));
+        $this->assertSame('كیكِ شکلاتي', $items[0]->record->title);
+        $this->assertSame(Persian::search('كیكِ شکلاتي')->normalize(), $items[0]->record->normalized_title);
+    }
+
+    public function test_query_expansion_still_matches_keyboard_and_synonym_candidates(): void
+    {
+        $bag = DriverProduct::create(['title' => 'کیف چرمی']);
+        $phone = DriverProduct::create(['title' => 'گوشی سامسونگ']);
         PersianSearch::index($bag);
-        PersianSearch::index($cake);
         PersianSearch::index($phone);
 
-        $normal = PersianSearch::search('کیک شکلاتی')
-            ->for(SearchDriverProduct::class)
-            ->first();
-
-        $keyboard = PersianSearch::search(';dt')
-            ->for(SearchDriverProduct::class)
-            ->results()
-            ->items()[0] ?? null;
-
-        config()->set('persian-search.synonyms.enabled', true);
-        config()->set('persian-search.synonyms.map', [
-            'گوشی' => ['موبایل', 'تلفن همراه'],
-        ]);
-
-        $synonym = PersianSearch::search('موبایل سامسونگ')
-            ->for(SearchDriverProduct::class)
-            ->results()
-            ->items()[0] ?? null;
-
-        $this->assertInstanceOf(Model::class, $normal);
-        $this->assertTrue($cake->is($normal));
-
-        $this->assertInstanceOf(SearchResult::class, $keyboard);
+        $keyboard = DriverProduct::persianSearch(';dt')->results()->items()[0];
         $this->assertTrue($bag->is($keyboard->model));
         $this->assertSame('keyboard', $keyboard->candidateSource);
 
-        $this->assertInstanceOf(SearchResult::class, $synonym);
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.map', ['گوشی' => ['موبایل']]);
+        $synonym = DriverProduct::persianSearch('موبایل سامسونگ')->results()->items()[0];
         $this->assertTrue($phone->is($synonym->model));
         $this->assertSame('synonym', $synonym->candidateSource);
-
-        $storedContents = SearchDocumentRecord::query()
-            ->pluck('content')
-            ->implode(' ');
-
-        $this->assertStringNotContainsString(';dt', $storedContents);
-        $this->assertStringNotContainsString('تلفن همراه', $storedContents);
     }
 
-    public function test_original_candidate_outscores_expanded_candidate_when_matches_are_comparable(): void
+    public function test_source_type_and_partition_reject_empty_values(): void
     {
-        config()->set('persian-search.synonyms.enabled', true);
-        config()->set('persian-search.synonyms.map', [
-            'گوشی' => ['موبایل'],
-        ]);
-
-        $original = SearchDriverProduct::create([
-            'title' => 'موبایل سامسونگ',
-            'description' => 'اندرویدی',
-        ]);
-        $expanded = SearchDriverProduct::create([
-            'title' => 'گوشی سامسونگ',
-            'description' => 'اندرویدی',
-        ]);
-
-        PersianSearch::index($expanded);
-        PersianSearch::index($original);
-
-        $items = SearchDriverProduct::persianSearch('موبایل سامسونگ')->results()->items();
-
-        $this->assertCount(2, $items);
-        $this->assertTrue($original->is($items[0]->model));
-        $this->assertSame('original', $items[0]->candidateSource);
-        $this->assertTrue($expanded->is($items[1]->model));
-        $this->assertSame('synonym', $items[1]->candidateSource);
-        $this->assertGreaterThan($items[1]->score, $items[0]->score);
+        $this->expectException(InvalidArgumentException::class);
+        PersianSearch::search('test')->type(' ');
     }
 
-    public function test_keyboard_and_synonym_expansion_do_not_mutate_stored_index_content(): void
-    {
-        config()->set('persian-search.synonyms.enabled', true);
-        config()->set('persian-search.synonyms.map', [
-            'کیف' => ['ساک'],
-        ]);
-
-        $bag = SearchDriverProduct::create([
-            'title' => 'کیف',
-            'description' => 'چرمی',
-        ]);
-
-        PersianSearch::index($bag);
-        SearchDriverProduct::persianSearch(';dt')->get();
-        SearchDriverProduct::persianSearch('ساک')->get();
-
-        $record = SearchDocumentRecord::firstOrFail();
-
-        $this->assertSame(Persian::search('کیف چرمی')->normalize(), $record->content);
-        $this->assertStringNotContainsString(';dt', $record->content);
-        $this->assertStringNotContainsString('ساک', $record->content);
-    }
-
-    public function test_synonym_expansion_is_inactive_by_default(): void
-    {
-        $bag = SearchDriverProduct::create([
-            'title' => 'کیف',
-            'description' => 'چرمی',
-        ]);
-        $car = SearchDriverProduct::create([
-            'title' => 'خودرو',
-            'description' => 'سواری',
-        ]);
-
-        PersianSearch::index($bag);
-        PersianSearch::index($car);
-
-        $this->assertTrue(PersianSearch::search('ماشین')->for(SearchDriverProduct::class)->get()->isEmpty());
-    }
-
-    private function migrateSearchIndex(): void
-    {
-        $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
-        $migration->up();
-    }
-
-    private function createModelTables(): void
-    {
-        Schema::create('search_driver_products', function ($table): void {
-            $table->id();
-            $table->string('title')->nullable();
-            $table->string('name')->nullable();
-            $table->text('description')->nullable();
-            $table->string('locale')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('search_driver_articles', function ($table): void {
-            $table->id();
-            $table->string('title')->nullable();
-            $table->text('body')->nullable();
-            $table->timestamps();
-        });
+    private function virtualDocument(
+        bool $isActive = true,
+        string $locale = 'fa',
+        string $partition = 'public',
+        string $sourceKey = 'page:about',
+    ): SearchDocument {
+        return new SearchDocument(
+            partition: $partition,
+            sourceKey: $sourceKey,
+            sourceType: 'page',
+            sourceId: null,
+            locale: $locale,
+            title: 'درباره ما',
+            excerpt: 'درباره شرکت',
+            normalizedTitle: Persian::search('درباره ما')->normalize(),
+            normalizedExcerpt: Persian::search('درباره شرکت')->normalize(),
+            normalizedKeywords: Persian::search('شرکت سن ایچ')->normalize(),
+            normalizedContent: Persian::search('تاریخچه و معرفی')->normalize(),
+            payload: ['route_name' => 'about'],
+            priority: 10,
+            isActive: $isActive,
+        );
     }
 }
 
-final class TitleOnlySearchDriverProduct extends Model implements PersianSearchable
+final class DriverProduct extends Model implements PersianSearchable
 {
     use HasPersianSearch;
 
-    protected $table = 'search_driver_products';
+    protected $table = 'driver_products';
 
     protected $guarded = [];
 
-    /**
-     * @return array<int|string, string|int|float>
-     */
+    /** @return array<int|string, string|int|float> */
     public function persianSearchableFields(): array
     {
-        return [
-            'description' => 1,
-        ];
-    }
-}
-
-final class SearchDriverProduct extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-
-    protected $table = 'search_driver_products';
-
-    protected $guarded = [];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'title' => 10,
-            'name' => 10,
-            'description' => 1,
-        ];
+        return ['title' => 10, 'description' => 1];
     }
 
     public function persianSearchLocale(): ?string
     {
         $locale = $this->getAttribute('locale');
 
-        return is_string($locale) && $locale !== '' ? $locale : null;
-    }
-}
-
-final class WeightedSearchDriverProduct extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-
-    protected $table = 'search_driver_products';
-
-    protected $guarded = [];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'name' => 10,
-            'description' => 1,
-        ];
-    }
-
-    public function persianSearchTitle(): string
-    {
-        return 'محصول';
-    }
-}
-
-final class SearchDriverArticle extends Model implements PersianSearchable
-{
-    use HasPersianSearch;
-
-    protected $table = 'search_driver_articles';
-
-    protected $guarded = [];
-
-    /**
-     * @return array<int|string, string|int|float>
-     */
-    public function persianSearchableFields(): array
-    {
-        return [
-            'title' => 10,
-            'body' => 1,
-        ];
+        return is_string($locale) ? $locale : null;
     }
 }

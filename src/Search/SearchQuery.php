@@ -8,44 +8,39 @@ final readonly class SearchQuery
 {
     /**
      * @param  array<int, string>  $tokens
-     * @param  list<class-string>  $searchableTypes
+     * @param  list<string>  $sourceTypes
      * @param  list<QueryCandidate>  $candidates
      */
     public function __construct(
         public string $original,
         public string $normalized,
         public array $tokens,
-        public array $searchableTypes,
+        public array $sourceTypes,
         public ?string $locale,
+        public string $partition,
         public int $limit,
         public int $offset,
         public bool $includeScores,
         private array $candidates = [],
     ) {}
 
-    public function hasSearchableTypes(): bool
+    public function hasSourceTypes(): bool
     {
-        return $this->searchableTypes !== [];
+        return $this->sourceTypes !== [];
     }
 
     public function isEmpty(): bool
     {
-        if ($this->hasCandidates()) {
-            foreach ($this->candidates as $candidate) {
-                if (! $candidate->isEmpty()) {
-                    return false;
-                }
+        foreach ($this->candidates as $candidate) {
+            if (! $candidate->isEmpty()) {
+                return false;
             }
-
-            return true;
         }
 
-        return trim($this->normalized) === '' && $this->tokens === [];
+        return $this->candidates !== [] || (trim($this->normalized) === '' && $this->tokens === []);
     }
 
-    /**
-     * @return list<QueryCandidate>
-     */
+    /** @return list<QueryCandidate> */
     public function candidates(): array
     {
         return $this->candidates;
@@ -56,61 +51,40 @@ final readonly class SearchQuery
         return $this->candidates !== [];
     }
 
-    /**
-     * @param  array<int, mixed>  $candidates
-     */
+    /** @param  array<int, mixed>  $candidates */
     public function withCandidates(array $candidates): self
     {
-        $validated = [];
-
         foreach ($candidates as $candidate) {
             if (! $candidate instanceof QueryCandidate) {
                 throw new InvalidArgumentException('Search query candidates must be QueryCandidate instances.');
             }
-
-            $validated[] = $candidate;
         }
 
+        /** @var list<QueryCandidate> $candidates */
         return new self(
             original: $this->original,
             normalized: $this->normalized,
             tokens: $this->tokens,
-            searchableTypes: $this->searchableTypes,
+            sourceTypes: $this->sourceTypes,
             locale: $this->locale,
+            partition: $this->partition,
             limit: $this->limit,
             offset: $this->offset,
             includeScores: $this->includeScores,
-            candidates: $validated,
+            candidates: $candidates,
         );
     }
 
-    /**
-     * @return array{
-     *     original: string,
-     *     normalized: string,
-     *     tokens: array<int, string>,
-     *     searchable_types: list<class-string>,
-     *     locale: string|null,
-     *     limit: int,
-     *     offset: int,
-     *     include_scores: bool,
-     *     candidates: list<array{
-     *         source: string,
-     *         original: string,
-     *         normalized: string,
-     *         tokens: array<int, string>,
-     *         boost: float
-     *     }>
-     * }
-     */
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [
             'original' => $this->original,
             'normalized' => $this->normalized,
             'tokens' => $this->tokens,
-            'searchable_types' => $this->searchableTypes,
+            'source_types' => $this->sourceTypes,
             'locale' => $this->locale,
+            'partition' => $this->partition,
             'limit' => $this->limit,
             'offset' => $this->offset,
             'include_scores' => $this->includeScores,

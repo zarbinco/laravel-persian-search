@@ -18,7 +18,12 @@ final class PersianSearchFoundationTest extends TestCase
     public function test_config_is_loaded(): void
     {
         $this->assertSame('database', config('persian-search.driver'));
-        $this->assertSame('persian-core', config('persian-search.normalizer.driver'));
+        $this->assertSame('default', config('persian-search.index.default_partition'));
+        $this->assertSame('und', config('persian-search.index.undefined_locale'));
+        $this->assertNull(config('persian-search.normalizer'));
+        $this->assertNull(config('persian-search.index.queue'));
+        $this->assertNull(config('persian-search.database.max_tokens'));
+        $this->assertNull(config('persian-search.keyboard.layouts.fa_to_en'));
     }
 
     public function test_search_normalizer_contract_resolves_to_core_implementation(): void
@@ -205,6 +210,7 @@ final class PersianSearchFoundationTest extends TestCase
             __DIR__.'/../../CHANGELOG.md',
             __DIR__.'/../../CONTRIBUTING.md',
             __DIR__.'/../../docs/release-checklist.md',
+            __DIR__.'/../../docs/architecture.md',
         ];
     }
 }

@@ -4,6 +4,8 @@ namespace Zarbinco\PersianSearch\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use LogicException;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 
@@ -52,9 +54,22 @@ final class ReindexCommand extends Command
 
         /** @var class-string<Model&PersianSearchable> $modelClass */
         $model = new $modelClass;
+        $query = $model->newQuery();
+
+        if ((bool) config('persian-search.index.include_soft_deleted', false)
+            && in_array(SoftDeletes::class, class_uses_recursive($model), true)) {
+            $withTrashed = [$query, 'withTrashed'];
+
+            if (! is_callable($withTrashed)) {
+                throw new LogicException('Soft-deleting model query does not support withTrashed().');
+            }
+
+            $withTrashed();
+        }
+
         $count = 0;
 
-        $model->newQuery()->chunkById($chunk, function ($models) use ($index, &$count): void {
+        $query->chunkById($chunk, function ($models) use ($index, &$count): void {
             foreach ($models as $model) {
                 $index->index($model);
                 $count++;

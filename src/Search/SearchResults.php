@@ -4,46 +4,35 @@ namespace Zarbinco\PersianSearch\Search;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 
 final readonly class SearchResults
 {
-    /**
-     * @param  list<SearchResult>  $items
-     */
+    /** @param  list<SearchResult>  $items */
     public function __construct(
         public SearchQuery $query,
         private array $items,
         public int $total,
     ) {}
 
-    /**
-     * @return list<SearchResult>
-     */
+    /** @return list<SearchResult> */
     public function items(): array
     {
         return $this->items;
     }
 
-    /**
-     * @return Collection<int, Model>
-     */
+    /** @return Collection<int, Model> */
     public function models(): Collection
     {
-        return collect($this->items)->map(
-            static fn (SearchResult $result): Model => $result->model,
-        )->values();
+        return collect($this->items)
+            ->map(static fn (SearchResult $result): ?Model => $result->model)
+            ->filter(static fn (?Model $model): bool => $model !== null)
+            ->values();
     }
 
-    /**
-     * @return list<int|float>
-     */
+    /** @return list<int|float> */
     public function scores(): array
     {
-        return array_map(
-            static fn (SearchResult $result): int|float => $result->score,
-            $this->items,
-        );
+        return array_map(static fn (SearchResult $result): int|float => $result->score, $this->items);
     }
 
     public function isEmpty(): bool
@@ -56,29 +45,13 @@ final readonly class SearchResults
         return count($this->items);
     }
 
-    /**
-     * @return array{
-     *     query: array<string, mixed>,
-     *     total: int,
-     *     items: list<array{
-     *         model: Model,
-     *         record: SearchDocumentRecord,
-     *         score: int|float,
-     *         matched_tokens: list<string>,
-     *         candidate_source: string|null,
-     *         matched_query: string|null
-     *     }>
-     * }
-     */
+    /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [
             'query' => $this->query->toArray(),
             'total' => $this->total,
-            'items' => array_map(
-                static fn (SearchResult $result): array => $result->toArray(),
-                $this->items,
-            ),
+            'items' => array_map(static fn (SearchResult $result): array => $result->toArray(), $this->items),
         ];
     }
 }

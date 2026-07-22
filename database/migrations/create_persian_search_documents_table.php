@@ -8,28 +8,42 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(config('persian-search.index.table', 'persian_search_documents'), function (Blueprint $table): void {
-            $table->id();
-            $table->string('searchable_type')->index();
-            $table->string('searchable_id')->index();
-            $table->string('locale')->default('')->index();
-            $table->string('title')->nullable();
-            $table->longText('content');
-            $table->json('tokens')->nullable();
-            $table->json('fields')->nullable();
-            $table->json('metadata')->nullable();
-            $table->timestamp('indexed_at')->nullable()->index();
-            $table->timestamps();
+        Schema::connection(config('persian-search.index.connection'))->create(
+            (string) config('persian-search.index.table', 'persian_search_documents'),
+            function (Blueprint $table): void {
+                $table->id();
+                $table->string('partition', 64)->default('default');
+                $table->string('source_key', 191);
+                $table->string('source_type');
+                $table->string('source_id')->nullable();
+                $table->string('locale', 32)->default('und');
+                $table->text('title')->nullable();
+                $table->text('excerpt')->nullable();
+                $table->text('normalized_title')->nullable();
+                $table->text('normalized_excerpt')->nullable();
+                $table->longText('normalized_keywords')->nullable();
+                $table->longText('normalized_content')->nullable();
+                $table->json('payload')->nullable();
+                $table->integer('priority')->default(0);
+                $table->boolean('is_active')->default(true);
+                $table->char('document_hash', 64);
+                $table->timestamp('source_updated_at')->nullable();
+                $table->timestamp('indexed_at')->nullable();
+                $table->timestamps();
 
-            $table->unique(
-                ['searchable_type', 'searchable_id', 'locale'],
-                'persian_search_documents_identity_unique',
-            );
-        });
+                $table->unique(['partition', 'source_key', 'locale'], 'ps_docs_identity_unique');
+                $table->index(['partition', 'locale', 'is_active'], 'ps_docs_partition_locale_active');
+                $table->index(['partition', 'source_type', 'locale', 'is_active'], 'ps_docs_partition_type_locale_active');
+                $table->index(['source_type', 'source_id'], 'ps_docs_source_type_id');
+                $table->index('indexed_at', 'ps_docs_indexed_at');
+            },
+        );
     }
 
     public function down(): void
     {
-        Schema::dropIfExists(config('persian-search.index.table', 'persian_search_documents'));
+        Schema::connection(config('persian-search.index.connection'))->dropIfExists(
+            (string) config('persian-search.index.table', 'persian_search_documents'),
+        );
     }
 };

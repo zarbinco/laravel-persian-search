@@ -8,27 +8,9 @@ use Zarbinco\PersianSearch\Search\SearchQuery;
 
 final class BasicRanker
 {
-    /**
-     * @return array{
-     *     base_score: float,
-     *     score: float,
-     *     matched_tokens: list<string>,
-     *     candidate_source: string,
-     *     matched_query: string
-     * }
-     */
+    /** @return array<string, mixed> */
     public function score(SearchDocumentRecord $record, SearchQuery $query): array
     {
-        if ($query->isEmpty()) {
-            return [
-                'base_score' => 0.0,
-                'score' => 0.0,
-                'matched_tokens' => [],
-                'candidate_source' => 'original',
-                'matched_query' => $query->normalized,
-            ];
-        }
-
         return $this->scoreCandidate($record, new QueryCandidate(
             source: 'original',
             original: $query->original,
@@ -39,86 +21,62 @@ final class BasicRanker
     }
 
     /**
-     * @return array{
-     *     base_score: float,
-     *     score: float,
-     *     matched_tokens: list<string>,
-     *     candidate_source: string,
-     *     matched_query: string
-     * }
+     * @return array{base_score: float, score: float, matched_tokens: list<string>, candidate_source: string, matched_query: string}
      */
     public function scoreCandidate(SearchDocumentRecord $record, QueryCandidate $candidate): array
     {
-        if ($candidate->isEmpty()) {
-            return [
-                'base_score' => 0.0,
-                'score' => 0.0,
-                'matched_tokens' => [],
-                'candidate_source' => $candidate->source,
-                'matched_query' => $candidate->normalized,
-            ];
-        }
-
         $score = 0.0;
         $matched = [];
-        $title = (string) ($record->title ?? '');
-        $content = (string) $record->content;
-        $documentTokens = $this->stringList($record->tokens ?? []);
-        $fields = is_array($record->fields) ? $record->fields : [];
+        $title = (string) ($record->normalized_title ?? '');
+        $other = implode(' ', array_filter([
+            $record->normalized_excerpt,
+            $record->normalized_keywords,
+            $record->normalized_content,
+        ], static fn (?string $value): bool => $value !== null && $value !== ''));
         $exactPhrase = (float) config('persian-search.ranking.exact_phrase', 100);
         $allTokens = (float) config('persian-search.ranking.all_tokens', 70);
         $anyToken = (float) config('persian-search.ranking.any_token', 20);
-        $titleBoost = (float) config('persian-search.ranking.title_boost', 2.0);
-        $fieldWeightMultiplier = (float) config('persian-search.ranking.field_weight_multiplier', 1.0);
+        $titleBoost = max(0.0, (float) config('persian-search.ranking.title_boost', 2.0));
 
         if ($candidate->normalized !== '') {
-            if ($this->contains($title, $candidate->normalized)) {
+            if (str_contains($title, $candidate->normalized)) {
                 $score += $exactPhrase * $titleBoost;
             }
 
-            if ($this->contains($content, $candidate->normalized)) {
+            if (str_contains($other, $candidate->normalized)) {
                 $score += $exactPhrase;
             }
         }
-
-        $presentTokens = [];
 
         foreach ($candidate->tokens as $token) {
             if ($token === '') {
                 continue;
             }
 
-            $tokenMatched = in_array($token, $documentTokens, true) || $this->contains($content, $token);
+            $found = false;
 
-            if ($tokenMatched) {
+            if (str_contains($other, $token)) {
                 $score += $anyToken;
-                $presentTokens[] = $token;
-                $matched[$token] = $token;
+                $found = true;
             }
 
-            if ($this->contains($title, $token)) {
-                $score += $anyToken * max(0.0, $titleBoost);
-                $presentTokens[] = $token;
-                $matched[$token] = $token;
+            if (str_contains($title, $token)) {
+                $score += $anyToken * $titleBoost;
+                $found = true;
             }
 
-            foreach ($fields as $field) {
-                if ($this->fieldMatchesToken($field, $token)) {
-                    $score += $anyToken * $this->fieldWeight($field) * $fieldWeightMultiplier;
-                    $presentTokens[] = $token;
-                    $matched[$token] = $token;
-                }
+            if ($found) {
+                $matched[$token] = $token;
             }
         }
 
-        $queryTokens = array_values(array_filter(
-            $candidate->tokens,
-            static fn (string $token): bool => $token !== '',
-        ));
+        $queryTokens = array_values(array_unique(array_filter($candidate->tokens, static fn (string $token): bool => $token !== '')));
 
-        if ($queryTokens !== [] && count(array_unique($presentTokens)) === count(array_unique($queryTokens))) {
+        if ($queryTokens !== [] && count($matched) === count($queryTokens)) {
             $score += $allTokens;
         }
+
+        $score += max(0, $record->priority);
 
         return [
             'base_score' => $score,
@@ -127,53 +85,5 @@ final class BasicRanker
             'candidate_source' => $candidate->source,
             'matched_query' => $candidate->normalized,
         ];
-    }
-
-    private function contains(string $haystack, string $needle): bool
-    {
-        return $needle !== '' && str_contains($haystack, $needle);
-    }
-
-    /**
-     * @param  array<mixed>  $field
-     */
-    private function fieldMatchesToken(array $field, string $token): bool
-    {
-        $value = $field['value'] ?? '';
-        $tokens = $field['tokens'] ?? [];
-
-        return (is_string($value) && $this->contains($value, $token))
-            || in_array($token, $this->stringList(is_array($tokens) ? $tokens : []), true);
-    }
-
-    /**
-     * @param  array<mixed>  $field
-     */
-    private function fieldWeight(array $field): float
-    {
-        $weight = $field['weight'] ?? 1;
-
-        if (is_int($weight) || is_float($weight)) {
-            return max(0.0, (float) $weight);
-        }
-
-        return 1.0;
-    }
-
-    /**
-     * @param  array<mixed>  $values
-     * @return list<string>
-     */
-    private function stringList(array $values): array
-    {
-        $strings = [];
-
-        foreach ($values as $value) {
-            if (is_string($value)) {
-                $strings[] = $value;
-            }
-        }
-
-        return $strings;
     }
 }

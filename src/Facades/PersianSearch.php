@@ -8,6 +8,7 @@ use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
@@ -19,8 +20,11 @@ use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
  * @method static SearchDocument documentFor(Model $model)
  * @method static SearchDocumentBuilder builder()
  * @method static SearchDocumentRecord index(Model $model)
+ * @method static SearchDocumentRecord indexDocument(SearchDocument $document)
  * @method static int deleteFromIndex(Model $model)
- * @method static int flushIndex(?string $searchableType = null)
+ * @method static int deleteDocument(SearchDocumentIdentity $identity)
+ * @method static int deleteSource(string $sourceKey, ?string $partition = null)
+ * @method static int flushIndex(?string $sourceType = null, ?string $partition = null)
  * @method static SearchIndexManager indexManager()
  * @method static SearchQueryBuilder search(string $query)
  * @method static QueryExpander queryExpander()

@@ -3,11 +3,13 @@
 namespace Zarbinco\PersianSearch\Indexing;
 
 use BackedEnum;
+use DateTimeInterface;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Enumerable;
 use InvalidArgumentException;
 use Stringable;
+use Throwable;
 use Traversable;
 use UnitEnum;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
@@ -16,9 +18,7 @@ use Zarbinco\PersianSearch\Exceptions\InvalidSearchableFieldException;
 
 final readonly class SearchDocumentBuilder
 {
-    public function __construct(
-        private SearchNormalizer $normalizer,
-    ) {}
+    public function __construct(private SearchNormalizer $normalizer) {}
 
     public function build(Model $model): SearchDocument
     {
@@ -30,69 +30,74 @@ final readonly class SearchDocumentBuilder
             ));
         }
 
-        $fields = [];
+        $key = $this->modelKey($model);
 
-        foreach ($model->persianSearchableFields() as $key => $declaration) {
-            [$fieldName, $weight] = $this->parseFieldDeclaration($key, $declaration);
-            $rawValue = $this->resolveFieldValue($model, $fieldName);
-            $stringValue = $this->stringValue($rawValue);
-
-            if ($stringValue === null) {
-                continue;
-            }
-
-            $normalizedValue = $this->normalizer->normalize($stringValue);
-
-            if ($normalizedValue === '') {
-                continue;
-            }
-
-            $fields[] = new SearchField(
-                name: $fieldName,
-                rawValue: $rawValue,
-                value: $normalizedValue,
-                tokens: $this->normalizer->tokens($stringValue),
-                weight: $weight,
-            );
+        if ($key === null || $key === '') {
+            throw new InvalidArgumentException('A stable source key requires a persisted model key.');
         }
 
-        $content = implode(' ', array_map(
-            static fn (SearchField $field): string => $field->value,
-            $fields,
-        ));
-        $rawTitle = $model->persianSearchTitle();
-        $normalizedTitle = $this->normalizer->normalize($rawTitle);
+        $normalizedFields = [];
+
+        foreach ($model->persianSearchableFields() as $declarationKey => $declaration) {
+            $field = $this->fieldName($declarationKey, $declaration);
+            $value = $this->stringValue($this->resolveFieldValue($model, $field));
+
+            if ($value === null) {
+                continue;
+            }
+
+            $normalized = $this->normalizer->normalize($value);
+
+            if ($normalized !== '') {
+                $normalizedFields[] = $normalized;
+            }
+        }
+
+        $title = $model->persianSearchTitle();
+        $locale = $model->persianSearchLocale();
+
+        if ($locale === null || trim($locale) === '') {
+            try {
+                $locale = app()->getLocale();
+            } catch (Throwable) {
+                $locale = null;
+            }
+        }
 
         return new SearchDocument(
-            searchableType: $model::class,
-            searchableId: $this->modelKey($model),
-            locale: $model->persianSearchLocale(),
-            title: $normalizedTitle,
-            content: $content,
-            tokens: $this->normalizer->tokens($content),
-            fields: $fields,
-            metadata: $model->persianSearchMetadata(),
+            partition: (string) config('persian-search.index.default_partition', 'default'),
+            sourceKey: $model::class.':'.$key,
+            sourceType: $model::class,
+            sourceId: $key,
+            locale: $locale,
+            title: $title,
+            excerpt: null,
+            normalizedTitle: $this->nullableNormalized($title),
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: $normalizedFields === [] ? null : implode(' ', $normalizedFields),
+            payload: $model->persianSearchMetadata(),
+            priority: 0,
+            isActive: true,
+            sourceUpdatedAt: $this->sourceUpdatedAt($model),
         );
     }
 
-    /**
-     * @return array{0: string, 1: int|float}
-     */
-    private function parseFieldDeclaration(int|string $key, mixed $declaration): array
+    private function fieldName(int|string $key, mixed $declaration): string
     {
         if (is_int($key)) {
             if (! is_string($declaration)) {
                 throw InvalidSearchableFieldException::invalidFieldName($declaration);
             }
 
-            return [$declaration, 1];
+            return $declaration;
         }
 
         if (! is_int($declaration) && ! is_float($declaration)) {
             throw InvalidSearchableFieldException::invalidWeight($key, $declaration);
         }
 
-        return [$key, $declaration];
+        return $key;
     }
 
     private function resolveFieldValue(Model $model, string $field): mixed
@@ -101,9 +106,7 @@ final readonly class SearchDocumentBuilder
             throw InvalidSearchableFieldException::invalidFieldName($field);
         }
 
-        $segments = explode('.', $field);
-
-        return $this->resolveSegmentPath($model, $segments, $field);
+        return $this->resolveSegmentPath($model, explode('.', $field), $field);
     }
 
     /**
@@ -122,27 +125,32 @@ final readonly class SearchDocumentBuilder
         }
 
         if ($value instanceof Model) {
-            $next = $this->resolveModelSegment($value, $segment, $segments !== [], $field);
-
-            return $this->resolveSegmentPath($next, $segments, $field);
-        }
-
-        if ($value instanceof Enumerable) {
-            $resolved = [];
-
-            foreach ($value as $item) {
-                $resolved[] = $this->resolveSegmentPath($item, array_merge([$segment], $segments), $field);
+            if (array_key_exists($segment, $value->getAttributes())) {
+                return $this->resolveSegmentPath($value->getAttribute($segment), $segments, $field);
             }
 
-            return $resolved;
-        }
+            if ($value->relationLoaded($segment)) {
+                return $this->resolveSegmentPath($value->getRelation($segment), $segments, $field);
+            }
 
-        if (is_array($value)) {
-            if (! array_key_exists($segment, $value)) {
+            if ($segments === []) {
                 return null;
             }
 
-            return $this->resolveSegmentPath($value[$segment], $segments, $field);
+            throw InvalidSearchableFieldException::unresolvable(
+                $field,
+                sprintf('relation or attribute [%s] is not loaded on [%s].', $segment, $value::class),
+            );
+        }
+
+        if ($value instanceof Enumerable) {
+            return $value->map(fn (mixed $item): mixed => $this->resolveSegmentPath($item, [$segment, ...$segments], $field))->all();
+        }
+
+        if (is_array($value)) {
+            return array_key_exists($segment, $value)
+                ? $this->resolveSegmentPath($value[$segment], $segments, $field)
+                : null;
         }
 
         if ($value === null) {
@@ -152,26 +160,6 @@ final readonly class SearchDocumentBuilder
         throw InvalidSearchableFieldException::unresolvable(
             $field,
             sprintf('segment [%s] cannot be read from [%s].', $segment, get_debug_type($value)),
-        );
-    }
-
-    private function resolveModelSegment(Model $model, string $segment, bool $hasRemaining, string $field): mixed
-    {
-        if (array_key_exists($segment, $model->getAttributes())) {
-            return $model->getAttribute($segment);
-        }
-
-        if ($model->relationLoaded($segment)) {
-            return $model->getRelation($segment);
-        }
-
-        if (! $hasRemaining) {
-            return null;
-        }
-
-        throw InvalidSearchableFieldException::unresolvable(
-            $field,
-            sprintf('relation or attribute [%s] is not loaded on [%s].', $segment, $model::class),
         );
     }
 
@@ -202,64 +190,62 @@ final readonly class SearchDocumentBuilder
         }
 
         if ($value instanceof Stringable) {
-            $string = (string) $value;
-
-            return trim($string) === '' ? null : $string;
-        }
-
-        if ($value instanceof Enumerable) {
-            return $this->stringValue($value->all());
+            return $this->stringValue((string) $value);
         }
 
         if ($value instanceof Arrayable) {
             return $this->stringValue($value->toArray());
         }
 
-        if (is_array($value)) {
-            return $this->flattenArrayValue($value);
+        if ($value instanceof Enumerable) {
+            return $this->stringValue($value->all());
         }
 
         if ($value instanceof Traversable) {
-            return $this->stringValue(iterator_to_array($value, preserve_keys: false));
+            return $this->stringValue(iterator_to_array($value, false));
+        }
+
+        if (is_array($value)) {
+            $parts = [];
+
+            foreach ($value as $item) {
+                $part = $this->stringValue($item);
+
+                if ($part !== null) {
+                    $parts[] = $part;
+                }
+            }
+
+            return $parts === [] ? null : implode(' ', $parts);
         }
 
         return null;
     }
 
-    /**
-     * @param  array<mixed>  $value
-     */
-    private function flattenArrayValue(array $value): ?string
-    {
-        $parts = [];
-
-        foreach ($value as $item) {
-            $string = $this->stringValue($item);
-
-            if ($string !== null) {
-                $parts[] = $string;
-            }
-        }
-
-        if ($parts === []) {
-            return null;
-        }
-
-        return implode(' ', $parts);
-    }
-
-    private function modelKey(Model $model): int|string|null
+    private function modelKey(Model $model): ?string
     {
         $key = $model->getKey();
 
-        if (is_int($key) || is_string($key) || $key === null) {
-            return $key;
+        return is_scalar($key) ? (string) $key : null;
+    }
+
+    private function nullableNormalized(string $value): ?string
+    {
+        $normalized = $this->normalizer->normalize($value);
+
+        return $normalized === '' ? null : $normalized;
+    }
+
+    private function sourceUpdatedAt(Model $model): ?DateTimeInterface
+    {
+        $column = $model->getUpdatedAtColumn();
+
+        if ($column === null) {
+            return null;
         }
 
-        if (is_float($key)) {
-            return (string) $key;
-        }
+        $value = $model->getAttribute($column);
 
-        return null;
+        return $value instanceof DateTimeInterface ? $value : null;
     }
 }

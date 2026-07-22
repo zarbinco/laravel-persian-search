@@ -11,12 +11,12 @@ use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 
 final class SearchQueryBuilder
 {
-    /**
-     * @var list<class-string>
-     */
-    private array $searchableTypes = [];
+    /** @var list<string> */
+    private array $sourceTypes = [];
 
     private ?string $locale = null;
+
+    private string $partition;
 
     private int $limit;
 
@@ -31,44 +31,36 @@ final class SearchQueryBuilder
         private readonly QueryExpander $expander,
     ) {
         $this->limit = (int) config('persian-search.search.default_limit', 20);
+        $this->partition = (string) config('persian-search.index.default_partition', 'default');
     }
 
-    /**
-     * @param  class-string|array<int, mixed>  $searchableTypes
-     */
-    public function for(string|array $searchableTypes): self
+    /** @param  string|array<int, mixed>  $sourceTypes */
+    public function for(string|array $sourceTypes): self
     {
-        return is_array($searchableTypes)
-            ? $this->types($searchableTypes)
-            : $this->type($searchableTypes);
+        return is_array($sourceTypes) ? $this->types($sourceTypes) : $this->type($sourceTypes);
     }
 
-    /**
-     * @param  class-string  $searchableType
-     */
-    public function type(string $searchableType): self
+    public function type(string $sourceType): self
     {
-        $this->searchableTypes = [$this->validateSearchableType($searchableType)];
+        $this->sourceTypes = [$this->validateSourceType($sourceType)];
 
         return $this;
     }
 
-    /**
-     * @param  array<int, mixed>  $searchableTypes
-     */
-    public function types(array $searchableTypes): self
+    /** @param  array<int, mixed>  $sourceTypes */
+    public function types(array $sourceTypes): self
     {
-        $types = [];
+        $validated = [];
 
-        foreach ($searchableTypes as $searchableType) {
-            if (! is_string($searchableType)) {
-                throw new InvalidArgumentException('Searchable types must be class strings.');
+        foreach ($sourceTypes as $sourceType) {
+            if (! is_string($sourceType)) {
+                throw new InvalidArgumentException('Source types must be non-empty strings.');
             }
 
-            $types[] = $this->validateSearchableType($searchableType);
+            $validated[] = $this->validateSourceType($sourceType);
         }
 
-        $this->searchableTypes = array_values(array_unique($types));
+        $this->sourceTypes = array_values(array_unique($validated));
 
         return $this;
     }
@@ -87,10 +79,22 @@ final class SearchQueryBuilder
         return $this;
     }
 
+    public function partition(string $partition): self
+    {
+        $partition = trim($partition);
+
+        if ($partition === '') {
+            throw new InvalidArgumentException('Search partition must not be empty.');
+        }
+
+        $this->partition = $partition;
+
+        return $this;
+    }
+
     public function limit(int $limit): self
     {
-        $maxLimit = max(1, (int) config('persian-search.search.max_limit', 100));
-        $this->limit = min($maxLimit, max(1, $limit));
+        $this->limit = min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $limit));
 
         return $this;
     }
@@ -116,15 +120,13 @@ final class SearchQueryBuilder
 
     public function results(): SearchResults
     {
-        return $this->driver->search($this->queryObject(includeScores: true));
+        return $this->driver->search($this->queryObject(true));
     }
 
-    /**
-     * @return Collection<int, Model>
-     */
+    /** @return Collection<int, Model> */
     public function get(): Collection
     {
-        return $this->driver->search($this->queryObject(includeScores: false))->models();
+        return $this->driver->search($this->queryObject(false))->models();
     }
 
     public function first(): ?Model
@@ -134,18 +136,14 @@ final class SearchQueryBuilder
 
     private function queryObject(bool $includeScores): SearchQuery
     {
-        $limit = min(
-            max(1, (int) config('persian-search.search.max_limit', 100)),
-            max(1, $this->limit),
-        );
-
         $query = new SearchQuery(
             original: $this->query,
             normalized: $this->normalizer->normalize($this->query),
             tokens: $this->normalizer->tokens($this->query),
-            searchableTypes: $this->searchableTypes,
+            sourceTypes: $this->sourceTypes,
             locale: $this->locale,
-            limit: $limit,
+            partition: $this->partition,
+            limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
             offset: $this->offset,
             includeScores: $includeScores,
         );
@@ -157,19 +155,14 @@ final class SearchQueryBuilder
         return $query->withCandidates($this->expander->expand($query));
     }
 
-    /**
-     * @return class-string
-     */
-    private function validateSearchableType(string $searchableType): string
+    private function validateSourceType(string $sourceType): string
     {
-        if (! class_exists($searchableType)) {
-            throw new InvalidArgumentException("Searchable type [{$searchableType}] does not exist.");
+        $sourceType = trim($sourceType);
+
+        if ($sourceType === '') {
+            throw new InvalidArgumentException('Source type must not be empty.');
         }
 
-        if (! is_subclass_of($searchableType, Model::class)) {
-            throw new InvalidArgumentException("Searchable type [{$searchableType}] must extend [".Model::class.'].');
-        }
-
-        return $searchableType;
+        return $sourceType;
     }
 }

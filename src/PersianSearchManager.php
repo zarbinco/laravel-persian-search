@@ -10,6 +10,7 @@ use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchNormalizer;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
+use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\QueryCandidate;
@@ -82,14 +83,29 @@ final class PersianSearchManager
         return $this->indexManager->index($model);
     }
 
+    public function indexDocument(SearchDocument $document): SearchDocumentRecord
+    {
+        return $this->indexManager->indexDocument($document);
+    }
+
     public function deleteFromIndex(Model $model): int
     {
         return $this->indexManager->delete($model);
     }
 
-    public function flushIndex(?string $searchableType = null): int
+    public function deleteDocument(SearchDocumentIdentity $identity): int
     {
-        return $this->indexManager->flush($searchableType);
+        return $this->indexManager->deleteDocument($identity);
+    }
+
+    public function deleteSource(string $sourceKey, ?string $partition = null): int
+    {
+        return $this->indexManager->deleteSource($sourceKey, $partition);
+    }
+
+    public function flushIndex(?string $sourceType = null, ?string $partition = null): int
+    {
+        return $this->indexManager->flush($sourceType, $partition);
     }
 
     public function search(string $query): SearchQueryBuilder
@@ -106,8 +122,9 @@ final class PersianSearchManager
             original: $query,
             normalized: $this->normalizer->normalize($query),
             tokens: $this->normalizer->tokens($query),
-            searchableTypes: [],
+            sourceTypes: [],
             locale: null,
+            partition: (string) config('persian-search.index.default_partition', 'default'),
             limit: (int) config('persian-search.search.default_limit', 20),
             offset: 0,
             includeScores: false,
