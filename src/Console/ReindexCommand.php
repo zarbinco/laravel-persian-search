@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use LogicException;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
+use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
 
 final class ReindexCommand extends Command
 {
@@ -18,8 +20,11 @@ final class ReindexCommand extends Command
 
     protected $description = 'Rebuild persisted Persian search documents for a searchable model.';
 
-    public function handle(SearchIndexManager $index): int
-    {
+    public function handle(
+        SearchIndexManager $index,
+        EloquentSearchDocumentProvider $eloquent,
+        SearchDocumentProviderRegistry $providers,
+    ): int {
         $modelClass = $this->argument('model');
         $chunk = max(1, (int) $this->option('chunk'));
 
@@ -47,14 +52,32 @@ final class ReindexCommand extends Command
             return self::FAILURE;
         }
 
-        if ((bool) $this->option('fresh')) {
+        $fresh = (bool) $this->option('fresh');
+
+        /** @var class-string<Model&PersianSearchable> $modelClass */
+        $model = new $modelClass;
+        $modelProvider = $providers->resolve($model);
+        $customFresh = $fresh && ! $modelProvider instanceof EloquentSearchDocumentProvider;
+
+        if ($fresh && ! $customFresh) {
             $deleted = $index->flush($modelClass);
             $this->components->info("Deleted {$deleted} existing Persian search document(s).");
         }
 
-        /** @var class-string<Model&PersianSearchable> $modelClass */
-        $model = new $modelClass;
+        if ($customFresh) {
+            $this->components->warn(
+                'Orphaned custom-provider sources for models no longer in the database are not removed; use an explicit source-type flush.',
+            );
+        }
+
         $query = $model->newQuery();
+        $relations = $modelProvider instanceof EloquentSearchDocumentProvider
+            ? $eloquent->relations($model)
+            : [];
+
+        if ($relations !== []) {
+            $query->with($relations);
+        }
 
         if ((bool) config('persian-search.index.include_soft_deleted', false)
             && in_array(SoftDeletes::class, class_uses_recursive($model), true)) {
@@ -67,16 +90,48 @@ final class ReindexCommand extends Command
             $withTrashed();
         }
 
-        $count = 0;
+        $sourceCount = 0;
+        $documentCount = 0;
+        $customDeletedCount = 0;
+        $encounteredCustomFresh = $customFresh;
 
-        $query->chunkById($chunk, function ($models) use ($index, &$count): void {
+        $query->chunkById($chunk, function ($models) use (
+            $index,
+            $providers,
+            $fresh,
+            &$sourceCount,
+            &$documentCount,
+            &$customDeletedCount,
+            &$encounteredCustomFresh,
+        ): void {
             foreach ($models as $model) {
-                $index->index($model);
-                $count++;
+                $provider = $providers->resolve($model);
+
+                if ($fresh && ! $provider instanceof EloquentSearchDocumentProvider) {
+                    if (! $encounteredCustomFresh) {
+                        $this->components->warn(
+                            'Orphaned custom-provider sources for models no longer in the database are not removed; use an explicit source-type flush.',
+                        );
+                        $encounteredCustomFresh = true;
+                    }
+
+                    $set = $index->documentsFor($model);
+                    $customDeletedCount += $index->deleteSourceReference($set->reference);
+                    $documentCount += $index->indexDocumentSet($set)->count();
+                } else {
+                    $documentCount += $index->indexSource($model)->count();
+                }
+
+                $sourceCount++;
             }
         });
 
-        $this->components->info("Indexed {$count} Persian search document(s).");
+        if ($encounteredCustomFresh) {
+            $this->components->info("Deleted {$customDeletedCount} current custom-provider Persian search document(s).");
+        }
+
+        $this->components->info("Indexed {$documentCount} Persian search document(s).");
+        $this->components->info("Processed {$sourceCount} searchable source(s).");
 
         return self::SUCCESS;
     }

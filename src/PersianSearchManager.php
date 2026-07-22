@@ -4,16 +4,18 @@ namespace Zarbinco\PersianSearch;
 
 use Closure;
 use Illuminate\Database\Eloquent\Model;
-use InvalidArgumentException;
+use Illuminate\Support\Collection;
 use Throwable;
-use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
+use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
+use Zarbinco\PersianSearch\Providers\SearchDocumentSet;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
@@ -33,6 +35,7 @@ final class PersianSearchManager
         private readonly SearchIndexManager $indexManager,
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
+        private readonly SearchDocumentProviderRegistry $providers,
     ) {}
 
     public function textPipeline(): SearchTextPipeline
@@ -85,15 +88,23 @@ final class PersianSearchManager
 
     public function documentFor(Model $model): SearchDocument
     {
-        if (! $model instanceof PersianSearchable) {
-            throw new InvalidArgumentException(sprintf(
-                'Model [%s] must implement [%s] to build a Persian search document.',
-                $model::class,
-                PersianSearchable::class,
-            ));
-        }
+        return $this->indexManager->documentFor($model);
+    }
 
-        return $this->builder->build($model);
+    public function documentsFor(mixed $source): SearchDocumentSet
+    {
+        return $this->indexManager->documentsFor($source);
+    }
+
+    /** @return Collection<int, SearchDocumentRecord> */
+    public function indexSource(mixed $source): Collection
+    {
+        return $this->indexManager->indexSource($source);
+    }
+
+    public function providerFor(mixed $source): SearchDocumentProvider
+    {
+        return $this->providers->resolve($source);
     }
 
     public function index(Model $model): SearchDocumentRecord
@@ -116,9 +127,14 @@ final class PersianSearchManager
         return $this->indexManager->deleteDocument($identity);
     }
 
-    public function deleteSource(string $sourceKey, ?string $partition = null): int
+    public function deleteSource(mixed $source): int
     {
-        return $this->indexManager->deleteSource($sourceKey, $partition);
+        return $this->indexManager->deleteSource($source);
+    }
+
+    public function deleteSourceKey(string $sourceKey, ?string $partition = null): int
+    {
+        return $this->indexManager->deleteSourceKey($sourceKey, $partition);
     }
 
     public function flushIndex(?string $sourceType = null, ?string $partition = null): int

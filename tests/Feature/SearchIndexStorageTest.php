@@ -111,7 +111,7 @@ final class SearchIndexStorageTest extends TestCase
         PersianSearch::indexDocument($this->document(locale: 'en'));
 
         $this->assertSame(1, PersianSearch::deleteDocument(new SearchDocumentIdentity('public', 'page:home', 'fa')));
-        $this->assertSame(1, PersianSearch::deleteSource('page:home', 'public'));
+        $this->assertSame(1, PersianSearch::deleteSourceKey('page:home', 'public'));
         $this->assertSame(0, SearchDocumentRecord::count());
     }
 

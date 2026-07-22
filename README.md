@@ -126,7 +126,7 @@ $document = new SearchDocument(
     excerpt: 'درباره شرکت',
     normalizedTitle: 'درباره ما',
     normalizedExcerpt: 'درباره شرکت',
-    normalizedKeywords: 'شرکت سن ایچ',
+    normalizedKeywords: 'شرکت نمونه',
     normalizedContent: 'متن معرفی شرکت',
     payload: ['route_name' => 'about'],
     priority: 10,
@@ -138,33 +138,59 @@ PersianSearch::indexDocument($document);
 
 Re-indexing the same `partition + source_key + locale` updates its row. A missing locale is stored as `und`. Raw `title` and `excerpt` remain suitable for display; normalized fields are searched.
 
-## Eloquent convenience adapter
+## Search document providers
 
-Models may use the current thin adapter:
+Application sources are converted to validated document sets by a provider registry. Custom providers configured in `persian-search.providers` are resolved through Laravel's container; the built-in `eloquent` provider is the fallback and does not need to be registered. Exactly one matching custom provider wins. Multiple matches throw an ambiguity exception, and unsupported sources throw a provider-not-found exception. Provider keys are stable canonical identifiers: they must be non-empty, may not contain leading or trailing Unicode whitespace, may not contain Unicode control or formatting characters, and must not change between calls. Lookup input may use surrounding ASCII or Unicode whitespace for convenience, but visible key content remains case-sensitive and is not otherwise normalized.
+
+```php
+'providers' => [
+    App\Search\LocalizedEntryProvider::class,
+    App\Search\StaticResourceProvider::class,
+],
+```
+
+Every provider returns a stable `SearchSourceReference` containing a source key, source type, and canonical string or null source ID. It may then yield zero, one, or many documents across locales and partitions. The validated set rejects non-documents, source mismatches, and duplicate `partition + source_key + locale` identities before any index write.
+
+```php
+$set = PersianSearch::documentsFor($source); // Read-only
+$records = PersianSearch::indexSource($source);
+$deleted = PersianSearch::deleteSource($source); // Every locale and partition
+```
+
+`indexSource()` upserts the documents currently returned by the provider in their original order. It does not remove older documents omitted from the latest provider output, and an empty output performs no writes or deletions.
+
+## Eloquent fallback provider
+
+Models using `HasPersianSearch` are handled by the built-in fallback provider:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 
-final class Product extends Model
+final class CatalogEntry extends Model
 {
     use HasPersianSearch;
 
     public function persianSearchableFields(): array
     {
-        return ['name' => 10, 'brand.name' => 5, 'description' => 1];
+        return ['name' => 10, 'group.name' => 5, 'description' => 1];
+    }
+
+    public function persianSearchableRelations(): array
+    {
+        return ['group'];
     }
 }
 ```
 
-Loaded relation paths are supported and are never lazy-loaded by the document builder. Declared field values are temporarily aggregated into normalized content; experimental field weights are accepted by this adapter but are not persisted.
+The fallback provider calls `loadMissing()` for explicitly declared relation paths. The model reindex command eager-loads these relations only when the built-in Eloquent provider owns the rebuild, while retaining model global scopes and chunked iteration. Relation paths are never inferred from field names; invalid fallback declarations fail with a focused exception. Custom providers do not invoke or validate the fallback relation declaration and own any source-specific relation preparation needed by their `documents()` implementation. Declared fallback field values are aggregated into normalized content, while experimental field weights are accepted but are not persisted.
 
 ```php
-PersianSearch::index($product);
-$product->savePersianSearchDocument();
+PersianSearch::index($entry);
+$entry->savePersianSearchDocument();
 
-PersianSearch::deleteFromIndex($product);
-$product->deletePersianSearchDocument();
+PersianSearch::deleteFromIndex($entry);
+$entry->deletePersianSearchDocument();
 ```
 
 Automatic save/delete/restore synchronization is controlled by the active index lifecycle configuration.
@@ -172,6 +198,8 @@ When `index.include_soft_deleted` is enabled, soft-deleted models keep their
 documents, are included by model reindexing, and may be hydrated in search
 results through the model's normal scoped query plus `withTrashed()`. Force
 deletion still removes their documents.
+
+Custom providers may override the Eloquent fallback, use an arbitrary source type, and produce multilingual or multi-partition documents. Providers also accept non-Eloquent value objects with null IDs. Such documents are fully searchable; results use `model === null` when the source type is not an Eloquent class. See [the architecture guide](docs/architecture.md#provider-examples) for complete custom Eloquent and virtual-source examples.
 
 ## Searching
 
@@ -215,6 +243,8 @@ php artisan persian-search:flush "App\Models\Product"
 php artisan persian-search:flush page --partition=public
 php artisan persian-search:flush --force
 ```
+
+For the Eloquent fallback, `--fresh` globally removes documents using the model-class source type before rebuilding, including orphaned documents whose model rows no longer exist. For a custom provider, the command validates each current model's complete document set, deletes using the exact `SearchSourceReference` carried by that validated set, and then indexes the same set. The provider reference is not recomputed for deletion. This removes omitted locale or partition documents for current models only. Custom-provider documents belonging to model rows that are no longer returned by the scoped model query cannot yet be enumerated; the command emits one warning and those orphaned sources require an explicit source-type flush. Normal `indexSource()` behavior remains non-destructive and does not remove omitted documents.
 
 ## Architecture and boundaries
 

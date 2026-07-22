@@ -9,6 +9,7 @@ use Zarbinco\PersianSearch\Console\FlushCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
+use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
@@ -16,9 +17,13 @@ use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Exceptions\InvalidQueryVariantConfigurationException;
+use Zarbinco\PersianSearch\Exceptions\InvalidSearchDocumentProviderException;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchQueryConfigurationException;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
+use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
+use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
 use Zarbinco\PersianSearch\Query\DefaultQueryExpander;
 use Zarbinco\PersianSearch\Query\KeyboardCorrectionPolicy;
 use Zarbinco\PersianSearch\Query\KeyboardLayoutCorrector;
@@ -155,12 +160,36 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(SearchDocumentBuilder::class, function ($app): SearchDocumentBuilder {
             return new SearchDocumentBuilder(
                 $app->make(SearchTextPipeline::class),
+                $app->make(EloquentSearchSourceReferenceFactory::class),
+            );
+        });
+
+        $this->app->singleton(EloquentSearchSourceReferenceFactory::class, EloquentSearchSourceReferenceFactory::class);
+        $this->app->singleton(EloquentSearchDocumentProvider::class, EloquentSearchDocumentProvider::class);
+        $this->app->singleton(SearchDocumentProviderRegistry::class, function ($app): SearchDocumentProviderRegistry {
+            $configured = config('persian-search.providers', []);
+
+            if (! is_array($configured) || ! array_is_list($configured)) {
+                throw InvalidSearchDocumentProviderException::invalidConfiguration($configured);
+            }
+
+            foreach ($configured as $class) {
+                if (! is_string($class) || trim($class) === '') {
+                    throw InvalidSearchDocumentProviderException::invalidConfiguration($class);
+                }
+            }
+
+            /** @var list<class-string<SearchDocumentProvider>> $configured */
+            return new SearchDocumentProviderRegistry(
+                $app,
+                $configured,
+                $app->make(EloquentSearchDocumentProvider::class),
             );
         });
 
         $this->app->singleton(SearchIndexManager::class, function ($app): SearchIndexManager {
             return new SearchIndexManager(
-                $app->make(SearchDocumentBuilder::class),
+                $app->make(SearchDocumentProviderRegistry::class),
             );
         });
 
@@ -172,6 +201,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchIndexManager::class),
                 $app->make(SearchDriver::class),
                 $app->make(QueryExpander::class),
+                $app->make(SearchDocumentProviderRegistry::class),
             );
         });
 

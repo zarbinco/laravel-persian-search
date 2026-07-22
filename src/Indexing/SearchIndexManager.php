@@ -3,20 +3,49 @@
 namespace Zarbinco\PersianSearch\Indexing;
 
 use Illuminate\Database\Eloquent\Model;
-use InvalidArgumentException;
-use Zarbinco\PersianSearch\Contracts\PersianSearchable;
-use Zarbinco\PersianSearch\Exceptions\SearchableModelNotPersistedException;
+use Illuminate\Support\Collection;
+use LogicException;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
+use Zarbinco\PersianSearch\Providers\SearchDocumentSet;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 
 final readonly class SearchIndexManager
 {
-    public function __construct(private SearchDocumentBuilder $builder) {}
+    public function __construct(private SearchDocumentProviderRegistry $providers) {}
+
+    public function documentsFor(mixed $source): SearchDocumentSet
+    {
+        return $this->providers->documentsFor($source);
+    }
+
+    /** @return Collection<int, SearchDocumentRecord> */
+    public function indexSource(mixed $source): Collection
+    {
+        return $this->indexDocumentSet($this->documentsFor($source));
+    }
+
+    /** @return Collection<int, SearchDocumentRecord> */
+    public function indexDocumentSet(SearchDocumentSet $set): Collection
+    {
+        $records = [];
+
+        foreach ($set as $document) {
+            $records[] = $this->indexDocument($document);
+        }
+
+        return collect($records);
+    }
 
     public function documentFor(Model $model): SearchDocument
     {
-        $this->ensureSearchable($model);
+        $document = $this->documentsFor($model)->all()[0] ?? null;
 
-        return $this->builder->build($model);
+        if ($document === null) {
+            throw new LogicException('The search document provider returned no documents for the model.');
+        }
+
+        return $document;
     }
 
     public function indexDocument(SearchDocument $document): SearchDocumentRecord
@@ -32,13 +61,13 @@ final readonly class SearchIndexManager
 
     public function index(Model $model): SearchDocumentRecord
     {
-        $this->ensureSearchable($model);
+        $record = $this->indexSource($model)->first();
 
-        if ($model->getKey() === null) {
-            throw SearchableModelNotPersistedException::forIndexing();
+        if (! $record instanceof SearchDocumentRecord) {
+            throw new LogicException('The search document provider returned no documents for the model.');
         }
 
-        return $this->indexDocument($this->builder->build($model));
+        return $record;
     }
 
     public function deleteDocument(SearchDocumentIdentity $identity): int
@@ -46,12 +75,26 @@ final readonly class SearchIndexManager
         return SearchDocumentRecord::query()->where($identity->toArray())->delete();
     }
 
-    public function deleteSource(string $sourceKey, ?string $partition = null): int
+    public function deleteSource(mixed $source): int
+    {
+        return $this->deleteSourceReference($this->providers->referenceFor($source));
+    }
+
+    public function deleteSourceReference(SearchSourceReference $reference): int
+    {
+        return SearchDocumentRecord::query()
+            ->where('source_key', $reference->sourceKey)
+            ->where('source_type', $reference->sourceType)
+            ->where('source_id', $reference->sourceId)
+            ->delete();
+    }
+
+    public function deleteSourceKey(string $sourceKey, ?string $partition = null): int
     {
         $sourceKey = trim($sourceKey);
 
         if ($sourceKey === '') {
-            throw new InvalidArgumentException('Search document source key must not be empty.');
+            throw new LogicException('Search document source key must not be empty.');
         }
 
         $query = SearchDocumentRecord::query()->where('source_key', $sourceKey);
@@ -60,7 +103,7 @@ final readonly class SearchIndexManager
             $partition = trim($partition);
 
             if ($partition === '') {
-                throw new InvalidArgumentException('Search partition must not be empty.');
+                throw new LogicException('Search partition must not be empty.');
             }
 
             $query->where('partition', $partition);
@@ -71,16 +114,7 @@ final readonly class SearchIndexManager
 
     public function delete(Model $model): int
     {
-        $this->ensureSearchable($model);
-
-        if ($model->getKey() === null) {
-            return 0;
-        }
-
-        return SearchDocumentRecord::query()
-            ->where('source_type', $model::class)
-            ->where('source_id', (string) $model->getKey())
-            ->delete();
+        return $this->deleteSource($model);
     }
 
     public function flush(?string $sourceType = null, ?string $partition = null): int
@@ -96,16 +130,5 @@ final readonly class SearchIndexManager
         }
 
         return $query->delete();
-    }
-
-    private function ensureSearchable(Model $model): void
-    {
-        if (! $model instanceof PersianSearchable) {
-            throw new InvalidArgumentException(sprintf(
-                'Model [%s] must implement [%s] to use the Persian search index.',
-                $model::class,
-                PersianSearchable::class,
-            ));
-        }
     }
 }

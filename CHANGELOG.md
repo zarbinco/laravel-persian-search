@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Made provider-key validation and diagnostics Unicode-aware, rejecting control, formatting, and edge-whitespace characters.
+- Isolated fallback searchable-relation declarations from custom-provider model rebuilds.
+- Made custom fresh deletion use the exact source reference from the validated document set without resolving it again.
+- Enforced canonical, stable provider keys and added key-specific registry lookup errors.
+- Made model `--fresh` rebuilds validate, clean, and reindex each current custom-provider source while preserving global fallback cleanup.
+- Added accurate custom-source deletion accounting and a warning for custom-provider sources that cannot be enumerated from the model query.
+- Added container-resolved search document providers for custom Eloquent and non-Eloquent sources.
+- Added immutable source references and validated, ordered multi-document sets across locales and partitions.
+- Routed source indexing, source deletion, and model lifecycle synchronization through deterministic provider resolution.
+- Added the built-in Eloquent fallback provider with explicit `loadMissing()` relation declarations and chunked reindex eager loading.
+- Added `documentsFor()`, `indexSource()`, `deleteSource()`, and `providerFor()` source APIs.
+- Made model reindexing report source and document counts separately when providers yield multiple documents.
 - Made English-to-Persian correction faithful to Windows Persian base and Shift key states.
 - Made synonym expansion lazy so the configured variant limit also bounds generated work.
 - Deduplicated synonym token candidates before normalization and semantic query-locale outputs before yielding.

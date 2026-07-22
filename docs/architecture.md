@@ -84,8 +84,168 @@ Every search result contains its `SearchDocumentRecord`. When `source_type` is a
 
 `SearchResults` also exposes its `ProcessedSearchQuery`, `status()`, and `isSearchableQuery()`. Non-searchable results have no items or models and a total of zero.
 
-## Eloquent adapter
+## Provider architecture
 
-`HasPersianSearch` is a convenience adapter. It creates a stable key from the model class and persisted key, uses the configured default partition, preserves the raw model title, prepares searchable field values into normalized document content, stores model metadata as payload, and carries `updated_at` into `source_updated_at` when available.
+Indexing a source follows one path:
 
-Loaded dot-notation relations can be read, but the adapter never lazy-loads relations. Field weights from the convenience declaration are not persisted.
+```text
+application source → provider registry → resolved provider → source reference
+                   → validated document set → index manager
+```
+
+A `SearchDocumentProvider` identifies itself with a stable key, determines whether it supports a source, returns the source's logical `SearchSourceReference`, and lazily yields search documents. Providers create documents only; they never write to or delete from the index.
+
+Configured provider classes are read when the singleton registry is first resolved and instantiated through Laravel's container. One provider-key boundary validates and caches keys at that point. A registered key must be valid UTF-8, non-empty, contain no leading or trailing Unicode whitespace, contain no Unicode control or formatting characters, and return exactly the same value on repeated access. The fallback key `eloquent` is reserved. Lookup input trims surrounding ASCII and Unicode whitespace for convenience, then rejects remaining control or formatting characters. Registered keys are never silently normalized or lowercased. The same boundary safely describes keys in lookup, duplicate, and ambiguity exceptions without rendering unsafe invisible characters. Custom providers are checked before the built-in Eloquent fallback. Exactly one custom match is selected regardless of configuration order. Multiple custom matches are rejected as ambiguous, and a source with no matching provider is rejected. Empty or non-canonical keys, unstable keys, duplicate keys or classes, missing classes, and classes that do not implement the contract are also rejected. Provider constructor failures remain visible.
+
+`SearchSourceReference` is independent of Eloquent. Its source key and type are non-empty, and its ID is a canonical string or null: integer IDs become exact decimal strings, strings such as `00123`, UUIDs, and ULIDs remain unchanged, and null remains null. Its deterministic fingerprint includes the key, type, and null-aware ID, but excludes locale, partition, and timestamps.
+
+`SearchDocumentSet` consumes provider output once, preserves its order, and validates it before indexing. Every value must be a `SearchDocument` whose source key, type, and ID strictly match the reference. Duplicate storage identities (`partition + source_key + locale`) are rejected. Zero documents are valid.
+
+The public source operations are:
+
+```php
+$documents = PersianSearch::documentsFor($source); // no writes
+$records = PersianSearch::indexSource($source);    // ordered upserts
+$deleted = PersianSearch::deleteSource($source);   // all locales and partitions
+$provider = PersianSearch::providerFor($source);
+```
+
+Direct `indexDocument()` remains available. `indexSource()` only upserts documents returned by the current provider call. It does not remove previously indexed identities that are now omitted, and an empty document set does not remove existing rows.
+
+The model-class reindex command has explicit provider-aware `--fresh` behavior. The Eloquent fallback retains its global model-class flush, which removes documents for missing model rows. A custom provider is handled per current source: the command first materializes and validates the complete `SearchDocumentSet`, then deletes all documents using the exact `SearchSourceReference` attached to that set, and finally indexes the same validated set without executing provider output or provider reference resolution again for deletion. This cleanup is command-only and has no transaction or replacement semantics. Because a model query cannot enumerate custom source identities for rows it no longer returns, orphaned custom-provider documents require an explicit source-type flush; one warning is emitted per command run.
+
+## Built-in Eloquent fallback
+
+`HasPersianSearch` is the explicit searchable-model convention. The fallback provider accepts only Eloquent models implementing that convention and rejects models without a persisted integer or string key. It creates a reference using the model class and canonical key, preserving the existing `ModelClass:key` source key and model class source type. Its focused builder produces one document through the shared locale-aware text pipeline, preserves the raw display title and metadata payload, and carries `updated_at` into `source_updated_at` when available.
+
+Models may explicitly declare relations needed by dot-notation fields:
+
+```php
+final class CatalogEntry extends Model
+{
+    use HasPersianSearch;
+
+    public function persianSearchableFields(): array
+    {
+        return ['name', 'group.name'];
+    }
+
+    public function persianSearchableRelations(): array
+    {
+        return ['group'];
+    }
+}
+```
+
+The default relation list is empty. Paths must be non-empty strings, duplicates are removed in declaration order, and nested paths such as `group.organization` are supported. The fallback provider uses `loadMissing()`, so already-loaded relations are not queried again. The model reindex command validates and eager-loads these declarations only when `EloquentSearchDocumentProvider` owns the rebuild. A custom provider neither invokes nor validates the fallback declaration and owns any relation or source preparation required by its `documents()` method. The command does not infer relations from searchable field names or remove global scopes.
+
+Save, delete, force-delete, and restore lifecycle hooks resolve the provider for the actual model. A custom Eloquent provider therefore overrides the fallback for both indexing and source deletion. The existing automatic-sync and soft-delete settings continue to control when those operations occur.
+
+## Provider examples
+
+This custom Eloquent provider produces two locales for one model. It can be registered in `persian-search.providers` and its constructor dependencies are supplied by Laravel's container.
+
+```php
+namespace App\Search;
+
+use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
+use Zarbinco\PersianSearch\Indexing\SearchDocument;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
+use Zarbinco\PersianSearch\Text\SearchTextPipeline;
+
+final class LocalizedEntryProvider implements SearchDocumentProvider
+{
+    public function __construct(private SearchTextPipeline $text) {}
+
+    public function key(): string
+    {
+        return 'localized-entries';
+    }
+
+    public function supports(mixed $source): bool
+    {
+        return $source instanceof \App\Models\CatalogEntry;
+    }
+
+    public function reference(mixed $source): SearchSourceReference
+    {
+        return new SearchSourceReference(
+            sourceKey: 'entry:'.$source->getKey(),
+            sourceType: 'catalog-entry',
+            sourceId: $source->getKey(),
+        );
+    }
+
+    public function documents(mixed $source): iterable
+    {
+        $reference = $this->reference($source);
+
+        foreach (['fa' => $source->title_fa, 'en' => $source->title_en] as $locale => $title) {
+            $prepared = $this->text->prepare($title, $locale);
+
+            yield new SearchDocument(
+                partition: 'public',
+                sourceKey: $reference->sourceKey,
+                sourceType: $reference->sourceType,
+                sourceId: $reference->sourceId,
+                locale: $locale,
+                title: $title,
+                excerpt: null,
+                normalizedTitle: $prepared->normalized,
+                normalizedExcerpt: null,
+                normalizedKeywords: null,
+                normalizedContent: $prepared->normalized,
+            );
+        }
+    }
+}
+```
+
+A virtual source needs no Eloquent APIs and may have a null source ID:
+
+```php
+final readonly class StaticResource
+{
+    public function __construct(public string $key, public string $title) {}
+}
+
+final class StaticResourceProvider implements SearchDocumentProvider
+{
+    public function __construct(private SearchTextPipeline $text) {}
+
+    public function key(): string { return 'static-resources'; }
+
+    public function supports(mixed $source): bool
+    {
+        return $source instanceof StaticResource;
+    }
+
+    public function reference(mixed $source): SearchSourceReference
+    {
+        return new SearchSourceReference('resource:'.$source->key, 'resource', null);
+    }
+
+    public function documents(mixed $source): iterable
+    {
+        $reference = $this->reference($source);
+        $prepared = $this->text->prepare($source->title, 'fa');
+
+        yield new SearchDocument(
+            partition: 'public',
+            sourceKey: $reference->sourceKey,
+            sourceType: $reference->sourceType,
+            sourceId: null,
+            locale: 'fa',
+            title: $source->title,
+            excerpt: null,
+            normalizedTitle: $prepared->normalized,
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: $prepared->normalized,
+            payload: ['resource_key' => $source->key],
+        );
+    }
+}
+```
+
+Because `resource` is not an Eloquent model class, matching results remain complete document results with `model === null`.

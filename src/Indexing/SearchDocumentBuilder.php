@@ -9,14 +9,19 @@ use InvalidArgumentException;
 use Throwable;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchableFieldException;
+use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
+use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 use Zarbinco\PersianSearch\Text\PreparedSearchText;
 use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
 final readonly class SearchDocumentBuilder
 {
-    public function __construct(private SearchTextPipeline $pipeline) {}
+    public function __construct(
+        private SearchTextPipeline $pipeline,
+        private EloquentSearchSourceReferenceFactory $references,
+    ) {}
 
-    public function build(Model $model): SearchDocument
+    public function build(Model $model, ?SearchSourceReference $reference = null): SearchDocument
     {
         if (! $model instanceof PersianSearchable) {
             throw new InvalidArgumentException(sprintf(
@@ -26,11 +31,7 @@ final readonly class SearchDocumentBuilder
             ));
         }
 
-        $key = $this->modelKey($model);
-
-        if ($key === null || $key === '') {
-            throw new InvalidArgumentException('A stable source key requires a persisted model key.');
-        }
+        $reference ??= $this->references->make($model);
 
         $locale = $model->persianSearchLocale();
 
@@ -67,9 +68,9 @@ final readonly class SearchDocumentBuilder
 
         return new SearchDocument(
             partition: (string) config('persian-search.index.default_partition', 'default'),
-            sourceKey: $model::class.':'.$key,
-            sourceType: $model::class,
-            sourceId: $key,
+            sourceKey: $reference->sourceKey,
+            sourceType: $reference->sourceType,
+            sourceId: $reference->sourceId,
             locale: $locale,
             title: $title,
             excerpt: null,
@@ -162,13 +163,6 @@ final readonly class SearchDocumentBuilder
             $field,
             sprintf('segment [%s] cannot be read from [%s].', $segment, get_debug_type($value)),
         );
-    }
-
-    private function modelKey(Model $model): ?string
-    {
-        $key = $model->getKey();
-
-        return is_scalar($key) ? (string) $key : null;
     }
 
     private function sourceUpdatedAt(Model $model): ?DateTimeInterface

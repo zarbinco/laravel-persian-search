@@ -17,6 +17,10 @@ return [
         'max_candidates' => 500,
     ],
 
+    'providers' => [
+        // App\Search\ProductSearchDocumentProvider::class,
+    ],
+
     'ranking' => [
         'exact_phrase' => 100,
         'all_tokens' => 70,

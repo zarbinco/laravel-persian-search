@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use LogicException;
 use Throwable;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
-use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
@@ -22,7 +21,7 @@ trait HasPersianSearch
     {
         static::saved(static function (Model $model): void {
             if ((bool) config('persian-search.index.sync_on_save', true)) {
-                app(SearchIndexManager::class)->index($model);
+                app(SearchIndexManager::class)->indexSource($model);
             }
         });
 
@@ -33,18 +32,18 @@ trait HasPersianSearch
 
             if (self::persianSearchUsesSoftDeletes($model) && ! self::persianSearchIsForceDeleting($model)) {
                 if (! (bool) config('persian-search.index.include_soft_deleted', false)) {
-                    app(SearchIndexManager::class)->delete($model);
+                    app(SearchIndexManager::class)->deleteSource($model);
                 }
 
                 return;
             }
 
-            app(SearchIndexManager::class)->delete($model);
+            app(SearchIndexManager::class)->deleteSource($model);
         });
 
         static::registerModelEvent('restored', static function (Model $model): void {
             if ((bool) config('persian-search.index.sync_on_save', true)) {
-                app(SearchIndexManager::class)->index($model);
+                app(SearchIndexManager::class)->indexSource($model);
             }
         });
     }
@@ -103,11 +102,17 @@ trait HasPersianSearch
         return [];
     }
 
+    /** @return list<string> */
+    public function persianSearchableRelations(): array
+    {
+        return [];
+    }
+
     public function toPersianSearchDocument(): SearchDocument
     {
         $model = $this->persianSearchModel();
 
-        return app(SearchDocumentBuilder::class)->build($model);
+        return app(SearchIndexManager::class)->documentFor($model);
     }
 
     public function savePersianSearchDocument(): SearchDocumentRecord
@@ -117,7 +122,7 @@ trait HasPersianSearch
 
     public function deletePersianSearchDocument(): int
     {
-        return app(SearchIndexManager::class)->delete($this->persianSearchModel());
+        return app(SearchIndexManager::class)->deleteSource($this->persianSearchModel());
     }
 
     private function persianSearchModel(): Model

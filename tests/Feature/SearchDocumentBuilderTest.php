@@ -3,11 +3,11 @@
 namespace Zarbinco\PersianSearch\Tests\Feature;
 
 use Illuminate\Database\Eloquent\Model;
-use InvalidArgumentException;
 use Zarbinco\PersianCore\Facades\Persian;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchableFieldException;
+use Zarbinco\PersianSearch\Exceptions\SearchDocumentProviderNotFoundException;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
@@ -110,7 +110,7 @@ final class SearchDocumentBuilderTest extends TestCase
 
     public function test_non_searchable_models_are_rejected(): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(SearchDocumentProviderNotFoundException::class);
 
         PersianSearch::documentFor(new BuilderPlainModel(['id' => 1]));
     }
