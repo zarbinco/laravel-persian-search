@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Acquire Laravel's real unique-job lock before lifecycle queue dispatch, suppress pending duplicates, and release the lock when a queue push fails.
+- Push lifecycle jobs with `beforeCommit()` so the captured source connection remains the only automatic transaction boundary.
+- Prepare custom provider references before deletion and dispatch only after a successful `deleted` event.
+- Reject Unicode edge whitespace plus control and formatting characters in explicit queue routing names.
+- Added transaction-aware Eloquent lifecycle synchronization that waits for the source connection's outermost commit and discards work on rollback.
+- Added synchronous and queued lifecycle execution with strict typed configuration, queue routing, retries, backoff, timeout, and unique-until-processing jobs.
+- Added immutable, queue-safe Eloquent locators and current-state write-PDO reloads so delayed work converges across updates, deletes, restores, repeated delivery, and soft-delete policy.
+- Reduced automatic model hooks to one synchronization per `saved` or `deleted` event while keeping explicit indexing and deletion APIs immediate.
 - Verify reloaded persisted semantic fields for replacement and direct indexing, including hash-matching unchanged rows, canonical payloads, and storage-normalized source timestamps.
 - Attribute direct first-create race recovery to the configured search-document insert and rethrow unrelated or post-insert listener uniqueness failures.
 - Add focused semantic mismatch diagnostics that list field names without exposing stored or incoming values.

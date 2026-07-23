@@ -9,9 +9,22 @@ return [
         'default_partition' => 'default',
         'undefined_locale' => 'und',
         'sync_on_save' => true,
-        'delete_on_model_delete' => true,
         'include_soft_deleted' => false,
         'transaction_attempts' => 3,
+    ],
+
+    'lifecycle' => [
+        'after_commit' => true,
+        'execution' => 'sync',
+    ],
+
+    'queue' => [
+        'connection' => null,
+        'queue' => null,
+        'tries' => 3,
+        'backoff' => [10, 30, 60],
+        'timeout' => 60,
+        'unique_for' => 300,
     ],
 
     'database' => [

@@ -3,11 +3,12 @@
 namespace Zarbinco\PersianSearch\Eloquent;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use LogicException;
 use Throwable;
+use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleSynchronization;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\PersianSearchManager;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
@@ -17,33 +18,25 @@ use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
  */
 trait HasPersianSearch
 {
+    private ?SearchLifecycleSynchronization $persianSearchPendingDeletionSynchronization = null;
+
     protected static function bootHasPersianSearch(): void
     {
-        static::saved(static function (Model $model): void {
-            if ((bool) config('persian-search.index.sync_on_save', true)) {
-                app(SearchIndexManager::class)->indexSource($model);
-            }
+        static::saved(static function (self $model): void {
+            app(SearchLifecycleDispatcher::class)->dispatchForModel($model);
         });
 
-        static::deleted(static function (Model $model): void {
-            if (! (bool) config('persian-search.index.delete_on_model_delete', true)) {
-                return;
-            }
-
-            if (self::persianSearchUsesSoftDeletes($model) && ! self::persianSearchIsForceDeleting($model)) {
-                if (! (bool) config('persian-search.index.include_soft_deleted', false)) {
-                    app(SearchIndexManager::class)->deleteSource($model);
-                }
-
-                return;
-            }
-
-            app(SearchIndexManager::class)->deleteSource($model);
+        static::deleting(static function (self $model): void {
+            $model->persianSearchPendingDeletionSynchronization = app(SearchLifecycleDispatcher::class)
+                ->prepareForModel($model);
         });
 
-        static::registerModelEvent('restored', static function (Model $model): void {
-            if ((bool) config('persian-search.index.sync_on_save', true)) {
-                app(SearchIndexManager::class)->indexSource($model);
+        static::deleted(static function (self $model): void {
+            $synchronization = $model->persianSearchPendingDeletionSynchronization;
+            $model->persianSearchPendingDeletionSynchronization = null;
+
+            if ($synchronization !== null) {
+                app(SearchLifecycleDispatcher::class)->dispatchSynchronization($synchronization);
             }
         });
     }
@@ -132,15 +125,5 @@ trait HasPersianSearch
         }
 
         return $this;
-    }
-
-    private static function persianSearchUsesSoftDeletes(Model $model): bool
-    {
-        return in_array(SoftDeletes::class, class_uses_recursive($model), true);
-    }
-
-    private static function persianSearchIsForceDeleting(Model $model): bool
-    {
-        return method_exists($model, 'isForceDeleting') && $model->isForceDeleting();
     }
 }

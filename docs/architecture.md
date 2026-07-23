@@ -150,7 +150,75 @@ final class CatalogEntry extends Model
 
 The default relation list is empty. Paths must be non-empty strings, duplicates are removed in declaration order, and nested paths such as `group.organization` are supported. The fallback provider uses `loadMissing()`, so already-loaded relations are not queried again. The model reindex command validates and eager-loads these declarations only when `EloquentSearchDocumentProvider` owns the rebuild. A custom provider neither invokes nor validates the fallback declaration and owns any relation or source preparation required by its `documents()` method. The command does not infer relations from searchable field names or remove global scopes.
 
-Save, delete, force-delete, and restore lifecycle hooks resolve the provider for the actual model. A custom Eloquent provider therefore overrides the fallback for both indexing and source deletion. The existing automatic-sync and soft-delete settings continue to control when those operations occur.
+The Eloquent lifecycle uses `saved` for create, update, and restore. Deletion
+uses `deleting` only to prepare an immutable synchronization and `deleted` only
+to dispatch it after the delete succeeds. Preparation resolves the locator and
+provider reference while a hard-deleted row and its relations are still
+available. The value is stored in a declared instance-local trait property,
+replaced on each attempt, and cleared after `deleted`; no dynamic property,
+static map, or mutable model enters a callback or job. A canceled or failed
+delete never reaches dispatch.
+
+The locator contains model class, exact source connection, primary-key name,
+and canonical string key, plus the provider's event-time
+`SearchSourceReference`. Its length-framed fingerprint includes every locator
+field without retaining model attributes.
+
+When automatic synchronization and `lifecycle.after_commit` are enabled, an
+event inside a transaction registers a callback on the model's source
+connection. Laravel releases it only after the outermost commit and discards it
+on rollback. The callback captures only immutable synchronization data and
+resolves the dispatcher when it runs. Work outside a transaction executes or
+dispatches immediately. This is intentionally local transaction coordination,
+not an outbox or distributed atomicity guarantee; disabling `after_commit` can
+produce rollback leakage when source and index connections differ.
+
+Both synchronous and queued modes converge through
+`EloquentSearchSourceSynchronizer`. It creates a fresh model prototype on the
+captured connection, verifies the primary-key name, performs one exact
+`newQueryWithoutScopes()->useWritePdo()` lookup, and then evaluates the current
+committed row. A present eligible row is sent through atomic `indexSource()`.
+A missing row, or a soft-deleted row excluded by policy, deletes the captured
+fallback reference. Bypassing global scopes is deliberately limited to the exact
+locator key and is required to distinguish deletion from scope visibility.
+
+Queue jobs carry the synchronization value object and scalar execution settings,
+not a serialized model, relation graph, or document set. A dedicated dispatcher
+acquires Laravel's `UniqueLock` using the framework's own unique-job key before
+calling the bus. Duplicate acquisition returns false without pushing; dispatch
+failure releases the lock; successful dispatch leaves it for the worker to
+release immediately before processing as required by
+`ShouldBeUniqueUntilProcessing`. Configured `unique_for` supplies the lock
+duration. This requires an atomic-lock-capable default cache backend.
+
+The job explicitly calls `beforeCommit()`. Source-transaction timing is handled
+by the package dispatcher against the connection stored in the locator, so a
+queue connection's global `after_commit` option cannot introduce a second,
+unrelated transaction boundary. Connection and queue route names are
+case-sensitive and otherwise unchanged, but must be valid UTF-8, contain no
+Unicode control or formatting characters, and have no Unicode whitespace at
+either edge.
+
+Jobs reload current state on every attempt, so save-then-delete,
+delete-then-restore, repeated delivery, lock expiry, and multiple pending events
+converge without assuming event order. Exceptions are not caught: synchronous
+after-commit failures propagate from commit, queue-push failures surface after
+releasing the unique lock, and workers retain Laravel's retry and failed-job
+semantics.
+
+The source commit, callback execution, queue broker, and search-index
+transaction do not form one distributed transaction. In particular, this
+design does not provide an outbox, exactly-once delivery, automatic recovery
+from post-commit dispatch failure, provider-wide orphan cleanup, dependency
+propagation, or cross-service atomicity. A surfaced post-commit failure may
+require explicit reindexing.
+
+Custom Eloquent providers remain authoritative for both indexing and deletion.
+Their event-time reference provides deletion identity when the source no longer
+exists, while a surviving model is resolved again through the registry before
+atomic indexing. `index.sync_on_save` is the sole automatic lifecycle switch;
+`index.include_soft_deleted` governs soft-delete eligibility. Explicit indexing
+and deletion APIs remain immediate and bypass lifecycle scheduling.
 
 ## Provider examples
 

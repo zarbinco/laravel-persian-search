@@ -198,7 +198,88 @@ PersianSearch::deleteFromIndex($entry);
 $entry->deletePersianSearchDocument();
 ```
 
-Automatic save/delete/restore synchronization is controlled by the active index lifecycle configuration.
+Automatic Eloquent synchronization is controlled by `index.sync_on_save`.
+Creates, updates, and restores synchronize once through `saved`. Deletes prepare
+their immutable locator and provider reference during `deleting`, while the
+source row and any required relations are still available, and dispatch once
+through `deleted` only after deletion succeeds. A canceled or failed delete
+therefore dispatches nothing, and hard or force deletion never needs to
+recompute provider identity from an absent row.
+Explicit APIs such as `PersianSearch::indexSource()` and the trait helpers remain
+immediate and are not routed through this lifecycle.
+
+Lifecycle work is transaction-aware by default:
+
+```php
+'lifecycle' => [
+    'after_commit' => true,
+    'execution' => 'sync', // sync or queue
+],
+```
+
+To dispatch after-commit work to a worker:
+
+```php
+'lifecycle' => [
+    'after_commit' => true,
+    'execution' => 'queue',
+],
+```
+
+Inside a transaction, `after_commit` registers work on the model's exact source
+connection. An outer rollback discards it, nested transactions wait for the
+outermost commit, and transactions on unrelated connections do not delay it.
+Outside a transaction, synchronous execution remains immediate. Setting
+`after_commit` to `false` restores event-time behavior and can leave the search
+index ahead of rolled-back source data when the two use different connections.
+After-commit failures are deliberately not swallowed: synchronous exceptions
+propagate from the commit callback, while queued failures use Laravel's normal
+retry and failed-job handling.
+
+Queued lifecycle jobs contain only an immutable Eloquent locator and the
+event-time source reference—never a serialized model or prebuilt document set.
+At execution they use the captured source connection, bypass global scopes only
+for the exact primary key, read from the write connection, and index the latest
+committed state. A missing or currently excluded soft-deleted row deletes the
+captured source reference. Before pushing, the package acquires Laravel's actual
+`UniqueLock` for the `ShouldBeUniqueUntilProcessing` job. Equivalent pending
+work is suppressed; different model classes, source connections, key names, or
+canonical key values use different locks. A queue-push exception releases the
+lock, while a successful push leaves it for Laravel's worker to release
+immediately before processing. Repeated execution remains idempotent even when
+uniqueness is unavailable or has expired.
+
+```php
+'queue' => [
+    'connection' => null, // Laravel default when null
+    'queue' => null,      // Laravel default when null
+    'tries' => 3,
+    'backoff' => [10, 30, 60],
+    'timeout' => 60,
+    'unique_for' => 300,
+],
+```
+
+Run a worker for the selected connection and queue whenever
+`lifecycle.execution` is `queue`. Laravel's queue backend must support atomic
+locks for uniqueness. Configuration is strictly typed and invalid execution,
+routing, retry, timeout, uniqueness, or backoff values fail when the lifecycle
+services are resolved. Explicit route names remain case-sensitive and unchanged,
+but leading or trailing Unicode whitespace and Unicode control or formatting
+characters are rejected.
+
+Source-transaction timing is handled by the package dispatcher. After that
+exact source-connection boundary is satisfied, the queue job is pushed with
+`beforeCommit()`. A queue connection's global `after_commit` option therefore
+cannot re-delay or discard the job because of an unrelated database transaction.
+
+This provides at-least-once-safe convergence, not exactly-once delivery. There
+is no transactional outbox or atomic boundary between the committed source
+transaction and a later queue-broker dispatch. A callback or broker failure
+after source commit can therefore require explicit reindexing. The lifecycle
+also does not provide provider-wide orphan cleanup, dependency propagation,
+cross-service transactions, or custom distributed locks.
+
 When `index.include_soft_deleted` is enabled, soft-deleted models keep their
 documents, are included by model reindexing, and may be hydrated in search
 results through the model's normal scoped query plus `withTrashed()`. Force
@@ -255,7 +336,7 @@ Every current model is rebuilt through atomic source replacement. Command output
 
 See [docs/architecture.md](docs/architecture.md) for the identity and storage design.
 
-The default database implementation is intentionally portable and simple. It does not provide pagination, facets, advanced ranking, dependency reindexing, queued indexing, cross-locale bridging, or typo-tolerant search.
+The default database implementation is intentionally portable and simple. It does not provide pagination, facets, advanced ranking, dependency reindexing, cross-locale bridging, or typo-tolerant search.
 
 ## Testing
 

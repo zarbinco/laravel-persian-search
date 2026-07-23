@@ -2,6 +2,8 @@
 
 namespace Zarbinco\PersianSearch;
 
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Zarbinco\PersianCore\Contracts\PersianSearchNormalizerContract;
@@ -11,6 +13,7 @@ use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
 use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
@@ -24,6 +27,12 @@ use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentPersistenceVerifier;
 use Zarbinco\PersianSearch\Indexing\SearchIndexingPolicy;
 use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
+use Zarbinco\PersianSearch\Lifecycle\DefaultSearchLifecycleDispatcher;
+use Zarbinco\PersianSearch\Lifecycle\EloquentSearchSourceSynchronizer;
+use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicy;
+use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicyFactory;
+use Zarbinco\PersianSearch\Lifecycle\SearchQueuePolicy;
+use Zarbinco\PersianSearch\Lifecycle\UniqueSearchLifecycleJobDispatcher;
 use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
 use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
 use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
@@ -207,6 +216,21 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchDocumentPersistenceVerifier::class),
             );
         });
+
+        $this->app->singleton(SearchLifecyclePolicyFactory::class, SearchLifecyclePolicyFactory::class);
+        $this->app->singleton(SearchLifecyclePolicy::class, function ($app): SearchLifecyclePolicy {
+            return $app->make(SearchLifecyclePolicyFactory::class)->lifecycle();
+        });
+        $this->app->singleton(SearchQueuePolicy::class, function ($app): SearchQueuePolicy {
+            return $app->make(SearchLifecyclePolicyFactory::class)->queue();
+        });
+        $this->app->singleton(EloquentSearchSourceSynchronizer::class, EloquentSearchSourceSynchronizer::class);
+        $this->app->singleton(UniqueLock::class, function ($app): UniqueLock {
+            return new UniqueLock($app->make(CacheRepository::class));
+        });
+        $this->app->singleton(UniqueSearchLifecycleJobDispatcher::class, UniqueSearchLifecycleJobDispatcher::class);
+        $this->app->singleton(DefaultSearchLifecycleDispatcher::class, DefaultSearchLifecycleDispatcher::class);
+        $this->app->alias(DefaultSearchLifecycleDispatcher::class, SearchLifecycleDispatcher::class);
 
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(

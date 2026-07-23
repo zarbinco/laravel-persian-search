@@ -5,6 +5,8 @@ namespace Zarbinco\PersianSearch\Tests\Feature;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
@@ -13,6 +15,8 @@ use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchDocumentSetException;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
+use Zarbinco\PersianSearch\Jobs\SynchronizeEloquentSearchSourceJob;
+use Zarbinco\PersianSearch\Lifecycle\EloquentSearchSourceSynchronizer;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 use Zarbinco\PersianSearch\Tests\TestCase;
@@ -34,6 +38,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         MultiProductProvider::$referenceCalls = 0;
         MultiProductProvider::$includeAdmin = true;
         MultiProductProvider::$invalidOutput = false;
+        MultiProductProvider::$emptyOutput = false;
         MultiProviderProduct::$relationCalls = 0;
         MultiProviderProduct::$throwFromRelations = false;
     }
@@ -126,6 +131,32 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $this->assertSame(3, SearchDocumentRecord::count());
 
         $product->forceDelete();
+        $this->assertSame(0, SearchDocumentRecord::count());
+    }
+
+    public function test_queued_custom_provider_builds_current_multi_locale_output_only_after_commit(): void
+    {
+        $queue = Queue::fake();
+        $this->useProviders([MultiProductProvider::class]);
+        config()->set('persian-search.lifecycle.execution', 'queue');
+
+        DB::beginTransaction();
+        $product = MultiProviderProduct::create(['title' => 'Orange']);
+        $this->assertSame(0, MultiProductProvider::$documentsCalls);
+        Queue::assertNothingPushed();
+        DB::commit();
+
+        $this->assertSame(0, MultiProductProvider::$documentsCalls);
+        $job = $queue->pushed(SynchronizeEloquentSearchSourceJob::class)->first();
+        $this->assertInstanceOf(SynchronizeEloquentSearchSourceJob::class, $job);
+        $this->assertSame('catalog:'.$product->getKey(), $job->synchronization->fallbackReference->sourceKey);
+        $job->handle(app(EloquentSearchSourceSynchronizer::class));
+
+        $this->assertSame(1, MultiProductProvider::$documentsCalls);
+        $this->assertSame(['fa', 'en', 'fa'], SearchDocumentRecord::query()->orderBy('id')->pluck('locale')->all());
+
+        MultiProductProvider::$emptyOutput = true;
+        $job->handle(app(EloquentSearchSourceSynchronizer::class));
         $this->assertSame(0, SearchDocumentRecord::count());
     }
 
@@ -367,6 +398,8 @@ final class MultiProductProvider implements SearchDocumentProvider
 
     public static bool $invalidOutput = false;
 
+    public static bool $emptyOutput = false;
+
     public function key(): string
     {
         return 'multi-products';
@@ -397,6 +430,11 @@ final class MultiProductProvider implements SearchDocumentProvider
     {
         self::$documentsCalls++;
         $reference = $this->makeReference($source);
+
+        if (self::$emptyOutput) {
+            return;
+        }
+
         yield integrationDocument($reference, 'public', 'fa', 'پرتقال');
         yield integrationDocument($reference, 'public', 'en', 'orange');
 
