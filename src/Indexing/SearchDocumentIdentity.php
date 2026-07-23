@@ -3,6 +3,7 @@
 namespace Zarbinco\PersianSearch\Indexing;
 
 use InvalidArgumentException;
+use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
 
 final readonly class SearchDocumentIdentity
 {
@@ -36,12 +37,22 @@ final readonly class SearchDocumentIdentity
         $locale = trim((string) $locale);
 
         if ($locale !== '') {
+            if (! CanonicalConfigurationName::isValid($locale)) {
+                throw new InvalidArgumentException('Search document locale must be a safe non-empty string.');
+            }
+
             return $locale;
         }
 
         $undefined = trim((string) config('persian-search.index.undefined_locale', 'und'));
 
-        return $undefined !== '' ? $undefined : 'und';
+        $normalized = $undefined !== '' ? $undefined : 'und';
+
+        if (! CanonicalConfigurationName::isValid($normalized)) {
+            throw new InvalidArgumentException('Undefined search document locale must be a safe non-empty string.');
+        }
+
+        return $normalized;
     }
 
     private static function required(string $value, string $name): string
@@ -50,6 +61,10 @@ final readonly class SearchDocumentIdentity
 
         if ($value === '') {
             throw new InvalidArgumentException("Search document {$name} must not be empty.");
+        }
+
+        if ($name === 'partition' && ! CanonicalConfigurationName::isValid($value)) {
+            throw new InvalidArgumentException('Search document partition must be a safe non-empty string.');
         }
 
         return $value;

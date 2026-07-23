@@ -7,6 +7,7 @@ final readonly class SearchQuery
     /**
      * @param  array<int, string>  $tokens
      * @param  list<string>  $sourceTypes
+     * @param  list<SearchFacetField>  $facetFields
      */
     public function __construct(
         public string $original,
@@ -19,6 +20,7 @@ final readonly class SearchQuery
         public int $offset,
         public ProcessedSearchQuery $processedQuery,
         private QueryVariantCollection $variants,
+        public array $facetFields = [],
     ) {}
 
     public function hasSourceTypes(): bool
@@ -48,6 +50,7 @@ final readonly class SearchQuery
             'partition' => $this->partition,
             'limit' => $this->limit,
             'offset' => $this->offset,
+            'facets' => array_map(static fn (SearchFacetField $field): string => $field->value, $this->facetFields),
             'processed_query' => $this->processedQuery->toArray(),
             'variants' => $this->variants->toArray(),
         ];

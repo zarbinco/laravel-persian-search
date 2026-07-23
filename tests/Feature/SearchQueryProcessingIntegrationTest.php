@@ -10,16 +10,24 @@ use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
+use Zarbinco\PersianSearch\Search\EmptySearchResultFactory;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariant;
 use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\QueryVariantSource;
+use Zarbinco\PersianSearch\Search\SearchFacetCollection;
+use Zarbinco\PersianSearch\Search\SearchPage;
+use Zarbinco\PersianSearch\Search\SearchPaginationRequest;
+use Zarbinco\PersianSearch\Search\SearchPreview;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Search\SearchQueryStatus;
 use Zarbinco\PersianSearch\Search\SearchResult;
+use Zarbinco\PersianSearch\Search\SearchResultGroupCollection;
+use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Search\SearchResults;
+use Zarbinco\PersianSearch\Search\SearchResultWindow;
 use Zarbinco\PersianSearch\Tests\TestCase;
 
 final class SearchQueryProcessingIntegrationTest extends TestCase
@@ -45,7 +53,7 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
             $results = PersianSearch::query($query)->results();
             $this->assertSame($status, $results->status());
             $this->assertFalse($results->isSearchableQuery());
-            $this->assertSame(0, $results->total);
+            $this->assertSame(0, $results->knownTotal);
             $this->assertSame([], $results->items());
             $this->assertTrue($results->models()->isEmpty());
         }
@@ -69,6 +77,8 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
             app(SearchQueryProcessor::class),
             new RecordingSearchDriver($recorder),
             new RecordingQueryExpander($recorder),
+            app(SearchResultPolicy::class),
+            app(EmptySearchResultFactory::class),
         );
 
         $results = $builder->results();
@@ -76,6 +86,27 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
         $this->assertSame(SearchQueryStatus::PunctuationOnly, $results->status());
         $this->assertSame('fa', $results->processedQuery->locale);
         $this->assertSame($results->processedQuery->locale, $results->query->locale);
+        $this->assertSame(0, $recorder->driverCalls);
+        $this->assertSame(0, $recorder->expanderCalls);
+    }
+
+    public function test_non_searchable_public_surfaces_never_call_the_expander_or_driver(): void
+    {
+        $recorder = new QueryProcessingRecorder;
+        $builder = new SearchQueryBuilder(
+            '!!!',
+            app(SearchQueryProcessor::class),
+            new RecordingSearchDriver($recorder),
+            new RecordingQueryExpander($recorder),
+            app(SearchResultPolicy::class),
+            app(EmptySearchResultFactory::class),
+        );
+
+        $builder->paginate(10, 1);
+        $builder->preview(5, 2);
+        $builder->groupBySourceType(2);
+        $builder->get();
+
         $this->assertSame(0, $recorder->driverCalls);
         $this->assertSame(0, $recorder->expanderCalls);
     }
@@ -107,7 +138,7 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
 
         $this->assertSame(SearchQueryStatus::PunctuationOnly, $results->processedQuery->status);
         $this->assertSame('punctuation_only', $serialized['processed_query']['status']);
-        $this->assertSame(0, $serialized['total']);
+        $this->assertSame(0, $serialized['known_total']);
         $this->assertSame([], $serialized['items']);
     }
 
@@ -245,6 +276,8 @@ final class SearchQueryProcessingIntegrationTest extends TestCase
                 app(SearchQueryProcessor::class),
                 new RecordingSearchDriver($recorder),
                 new RecordingQueryExpander($recorder),
+                app(SearchResultPolicy::class),
+                app(EmptySearchResultFactory::class),
             );
 
             if ($explicit !== null) {
@@ -330,7 +363,35 @@ final readonly class RecordingSearchDriver implements SearchDriver
     {
         $this->recorder->driverCalls++;
 
-        return new SearchResults($query, $query->processedQuery, [], 0);
+        return new SearchResults(
+            $query,
+            [],
+            new SearchResultWindow([], [], 1),
+            new SearchFacetCollection,
+            $query->offset,
+            $query->limit,
+        );
+    }
+
+    public function paginate(SearchQuery $query, SearchPaginationRequest $request): SearchPage
+    {
+        $this->recorder->driverCalls++;
+
+        throw new \LogicException('Pagination is not used by this recording driver.');
+    }
+
+    public function preview(SearchQuery $query, int $limit, int $perType): SearchPreview
+    {
+        $this->recorder->driverCalls++;
+
+        throw new \LogicException('Preview is not used by this recording driver.');
+    }
+
+    public function groupBySourceType(SearchQuery $query, int $perGroupLimit): SearchResultGroupCollection
+    {
+        $this->recorder->driverCalls++;
+
+        throw new \LogicException('Grouping is not used by this recording driver.');
     }
 }
 

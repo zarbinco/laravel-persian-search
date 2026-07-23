@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Throwable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Exceptions\InvalidSearchPaginationException;
 
 final class SearchQueryBuilder
 {
@@ -24,13 +25,22 @@ final class SearchQueryBuilder
 
     private bool $expansionEnabled = true;
 
+    private bool $limitExplicit = false;
+
+    private bool $offsetExplicit = false;
+
+    /** @var list<SearchFacetField> */
+    private array $facetFields = [];
+
     public function __construct(
         private readonly mixed $query,
         private readonly SearchQueryProcessor $processor,
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
+        private readonly SearchResultPolicy $resultPolicy,
+        private readonly EmptySearchResultFactory $emptyResults,
     ) {
-        $this->limit = (int) config('persian-search.search.default_limit', 20);
+        $this->limit = $this->resultPolicy->defaultPerPage;
         $this->partition = (string) config('persian-search.index.default_partition', 'default');
     }
 
@@ -94,14 +104,24 @@ final class SearchQueryBuilder
 
     public function limit(int $limit): self
     {
-        $this->limit = min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $limit));
+        if ($limit < 1 || $limit > $this->resultPolicy->maximumPerPage) {
+            throw new InvalidArgumentException("Search result limit must be between 1 and {$this->resultPolicy->maximumPerPage}.");
+        }
+
+        $this->limit = $limit;
+        $this->limitExplicit = true;
 
         return $this;
     }
 
     public function offset(int $offset): self
     {
-        $this->offset = max(0, $offset);
+        if ($offset < 0) {
+            throw new InvalidArgumentException('Search result offset must be zero or greater.');
+        }
+
+        $this->offset = $offset;
+        $this->offsetExplicit = true;
 
         return $this;
     }
@@ -122,6 +142,10 @@ final class SearchQueryBuilder
     {
         $processed = $this->processor->process($this->query, $this->processingLocale());
 
+        if (! $processed->isSearchable()) {
+            return new QueryVariantCollection(1);
+        }
+
         return $this->expansionEnabled
             ? $this->expander->expand($processed)
             : $this->expander->original($processed);
@@ -131,8 +155,8 @@ final class SearchQueryBuilder
     {
         $query = $this->queryObject();
 
-        if (! $query->processedQuery->isSearchable()) {
-            return new SearchResults($query, $query->processedQuery, [], 0);
+        if ($query->isEmpty()) {
+            return $this->emptyResults->results($query);
         }
 
         return $this->driver->search($query);
@@ -141,18 +165,99 @@ final class SearchQueryBuilder
     /** @return Collection<int, Model> */
     public function get(): Collection
     {
-        $query = $this->queryObject();
-
-        if (! $query->processedQuery->isSearchable()) {
-            return collect();
-        }
-
-        return $this->driver->search($query)->models();
+        return $this->results()->models();
     }
 
     public function first(): ?Model
     {
         return $this->limit(1)->get()->first();
+    }
+
+    /** @param array<int, mixed> $fields */
+    public function facets(array $fields): self
+    {
+        $requested = [];
+
+        foreach ($fields as $field) {
+            if (is_string($field)) {
+                $field = SearchFacetField::tryFrom($field)
+                    ?? throw new InvalidArgumentException("Unsupported search facet field [{$field}].");
+            }
+
+            if (! $field instanceof SearchFacetField) {
+                throw new InvalidArgumentException('Search facet fields must be SearchFacetField values or supported strings.');
+            }
+
+            $requested[$field->value] = true;
+        }
+
+        $this->facetFields = array_values(array_filter(
+            SearchFacetField::cases(),
+            static fn (SearchFacetField $field): bool => isset($requested[$field->value]),
+        ));
+
+        return $this;
+    }
+
+    public function paginate(?int $perPage = null, int $page = 1): SearchPage
+    {
+        if ($this->limitExplicit || $this->offsetExplicit) {
+            throw new InvalidSearchPaginationException(
+                'paginate() owns final result slicing and cannot be combined with explicit limit() or offset().',
+            );
+        }
+
+        $perPage ??= $this->resultPolicy->defaultPerPage;
+
+        if ($perPage < 1 || $perPage > $this->resultPolicy->maximumPerPage) {
+            throw new InvalidSearchPaginationException(
+                "Search per-page must be between 1 and {$this->resultPolicy->maximumPerPage}.",
+            );
+        }
+
+        $query = $this->queryObject();
+        $request = new SearchPaginationRequest($page, $perPage);
+
+        return $query->isEmpty()
+            ? $this->emptyResults->page($query, $request)
+            : $this->driver->paginate($query, $request);
+    }
+
+    public function preview(?int $limit = null, ?int $perType = null): SearchPreview
+    {
+        $limit ??= $this->resultPolicy->defaultPreviewLimit;
+        $perType ??= $this->resultPolicy->defaultPreviewPerType;
+
+        if ($limit < 1 || $limit > $this->resultPolicy->maximumPreviewLimit) {
+            throw new InvalidArgumentException(
+                "Search preview limit must be between 1 and {$this->resultPolicy->maximumPreviewLimit}.",
+            );
+        }
+
+        if ($perType < 1 || $perType > $this->resultPolicy->maximumPreviewPerType) {
+            throw new InvalidArgumentException(
+                "Search preview per-type limit must be between 1 and {$this->resultPolicy->maximumPreviewPerType}.",
+            );
+        }
+
+        $query = $this->queryObject();
+
+        return $query->isEmpty()
+            ? $this->emptyResults->preview($query, $limit, $perType)
+            : $this->driver->preview($query, $limit, $perType);
+    }
+
+    public function groupBySourceType(int $perGroupLimit = 3): SearchResultGroupCollection
+    {
+        if ($perGroupLimit < 1) {
+            throw new InvalidArgumentException('Search per-group limit must be positive.');
+        }
+
+        $query = $this->queryObject();
+
+        return $query->isEmpty()
+            ? $this->emptyResults->groups()
+            : $this->driver->groupBySourceType($query, $perGroupLimit);
     }
 
     private function queryObject(): SearchQuery
@@ -173,10 +278,11 @@ final class SearchQueryBuilder
             sourceTypes: $this->sourceTypes,
             locale: $processed->locale,
             partition: $this->partition,
-            limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
+            limit: $this->limit,
             offset: $this->offset,
             processedQuery: $processed,
             variants: $variants,
+            facetFields: $this->facetFields,
         );
 
         return $query;

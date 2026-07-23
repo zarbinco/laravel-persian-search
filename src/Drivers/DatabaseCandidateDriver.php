@@ -10,9 +10,11 @@ use Zarbinco\PersianSearch\Candidates\SearchCandidateMatcher;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePlan;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePlanBuilder;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicy;
+use Zarbinco\PersianSearch\Candidates\SearchCandidateRetrieval;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\SearchQuery;
+use Zarbinco\PersianSearch\Search\SearchResultTruncationReason;
 
 final readonly class DatabaseCandidateDriver implements SearchCandidateDriver
 {
@@ -23,16 +25,27 @@ final readonly class DatabaseCandidateDriver implements SearchCandidateDriver
         private SearchCandidatePolicy $policy,
     ) {}
 
-    public function candidates(SearchQuery $query): SearchCandidateCollection
+    public function candidates(SearchQuery $query): SearchCandidateRetrieval
     {
         $candidates = new SearchCandidateCollection($this->policy->maximumCandidates);
+        $reasons = [];
+        $plans = $this->plans->build($query);
 
-        foreach ($this->plans->build($query) as $plan) {
+        foreach ($plans as $index => $plan) {
             if ($candidates->isFull()) {
+                $reasons[] = SearchResultTruncationReason::GlobalCandidateLimit;
+                $reasons[] = SearchResultTruncationReason::UnexecutedVariants;
+
                 break;
             }
 
-            foreach ($this->records($plan) as $record) {
+            $records = $this->records($plan);
+
+            if ($records['truncated']) {
+                $reasons[] = SearchResultTruncationReason::PerVariantLimit;
+            }
+
+            foreach ($records['records'] as $record) {
                 $match = $this->matcher->match($record, $plan);
 
                 if ($match === null) {
@@ -47,12 +60,20 @@ final readonly class DatabaseCandidateDriver implements SearchCandidateDriver
 
                 $candidates = $candidates->with($candidate);
             }
+
+            if ($candidates->isFull()) {
+                $reasons[] = SearchResultTruncationReason::GlobalCandidateLimit;
+
+                if ($index < count($plans) - 1) {
+                    $reasons[] = SearchResultTruncationReason::UnexecutedVariants;
+                }
+            }
         }
 
-        return $candidates;
+        return new SearchCandidateRetrieval($candidates, $reasons, $this->policy->maximumCandidates);
     }
 
-    /** @return list<SearchDocumentRecord> */
+    /** @return array{records: list<SearchDocumentRecord>, truncated: bool} */
     private function records(SearchCandidatePlan $plan): array
     {
         $builder = SearchDocumentRecord::query()
@@ -78,10 +99,22 @@ final readonly class DatabaseCandidateDriver implements SearchCandidateDriver
         /** @var list<SearchDocumentRecord> $records */
         $records = $builder
             ->orderBy($builder->getModel()->qualifyColumn('id'))
-            ->limit($plan->limit)
+            ->limit($this->detectionLimit($plan->limit))
             ->get()
             ->all();
 
-        return $records;
+        return [
+            'records' => array_slice($records, 0, $plan->limit),
+            'truncated' => count($records) > $plan->limit,
+        ];
+    }
+
+    private function detectionLimit(int $limit): int
+    {
+        if ($limit === PHP_INT_MAX) {
+            throw new \LogicException('Candidate per-variant limit cannot be incremented safely.');
+        }
+
+        return $limit + 1;
     }
 }

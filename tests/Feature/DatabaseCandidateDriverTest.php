@@ -23,6 +23,7 @@ use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\QueryVariantSource;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchQueryStatus;
+use Zarbinco\PersianSearch\Search\SearchResultTruncationReason;
 use Zarbinco\PersianSearch\Tests\TestCase;
 
 final class DatabaseCandidateDriverTest extends TestCase
@@ -220,6 +221,10 @@ final class DatabaseCandidateDriverTest extends TestCase
         $this->assertCount(1, $candidates);
         $this->assertSame(1, $queryCount);
         $this->assertSame('first', $candidates->all()[0]->document->source_key);
+        $this->assertSame([
+            SearchResultTruncationReason::GlobalCandidateLimit,
+            SearchResultTruncationReason::UnexecutedVariants,
+        ], $candidates->truncationReasons);
     }
 
     public function test_terms_and_fields_share_one_query_and_per_variant_limit_is_applied(): void
@@ -247,8 +252,12 @@ final class DatabaseCandidateDriverTest extends TestCase
 
         $this->assertCount(1, $candidates);
         $this->assertCount(1, $queries);
-        $this->assertStringContainsString('limit 1', strtolower($queries[0]->sql));
+        $this->assertStringContainsString('limit 2', strtolower($queries[0]->sql));
         $this->assertSame('first', $candidates->all()[0]->document->source_key);
+        $this->assertSame(
+            [SearchResultTruncationReason::PerVariantLimit],
+            $candidates->truncationReasons,
+        );
     }
 
     public function test_php_verification_rejects_sqlite_case_collation_false_positive(): void

@@ -56,9 +56,14 @@ return [
         ],
     ],
 
-    'search' => [
-        'default_limit' => 20,
-        'max_limit' => 100,
+    'results' => [
+        'default_per_page' => 15,
+        'maximum_per_page' => 100,
+        'default_preview_limit' => 8,
+        'maximum_preview_limit' => 50,
+        'default_preview_per_type' => 2,
+        'maximum_preview_per_type' => 10,
+        'maximum_groups' => 50,
     ],
 
     'query' => [

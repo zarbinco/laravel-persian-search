@@ -34,7 +34,7 @@ final class SearchIndexStorageTest extends TestCase
     public function test_migration_contains_exact_document_first_columns_and_no_legacy_columns(): void
     {
         $expected = [
-            'id', 'partition', 'source_key', 'source_type', 'source_id', 'locale',
+            'id', 'partition', 'source_key', 'source_type', 'source_id', 'source_connection', 'locale',
             'title', 'excerpt', 'normalized_title', 'normalized_excerpt',
             'normalized_keywords', 'normalized_content', 'payload', 'priority',
             'is_active', 'document_hash', 'source_updated_at', 'indexed_at',
@@ -163,6 +163,7 @@ final class SearchIndexStorageTest extends TestCase
             $this->document(sourceKey: 'page:other'),
             $this->document(sourceType: 'brand'),
             $this->document(sourceId: '123'),
+            $this->document(sourceConnection: 'source_a'),
             $this->document(locale: 'en'),
             $this->document(title: 'عنوان دیگر'),
             $this->document(excerpt: 'خلاصه دیگر'),
@@ -253,12 +254,14 @@ final class SearchIndexStorageTest extends TestCase
         int $priority = 10,
         bool $isActive = true,
         ?DateTimeImmutable $sourceUpdatedAt = null,
+        ?string $sourceConnection = null,
     ): SearchDocument {
         return new SearchDocument(
             partition: $partition, sourceKey: $sourceKey, sourceType: $sourceType, sourceId: $sourceId,
             locale: $locale, title: $title, excerpt: $excerpt, normalizedTitle: $normalizedTitle,
             normalizedExcerpt: $normalizedExcerpt, normalizedKeywords: $normalizedKeywords, normalizedContent: $normalizedContent,
             payload: $payload, priority: $priority, isActive: $isActive, sourceUpdatedAt: $sourceUpdatedAt,
+            sourceConnection: $sourceConnection,
         );
     }
 }

@@ -151,6 +151,12 @@ Application sources are converted to validated document sets by a provider regis
 
 Every provider returns a stable `SearchSourceReference` containing a source key, source type, and canonical string or null source ID. It may then yield zero, one, or many documents across locales and partitions. The validated set rejects non-documents, source mismatches, and duplicate `partition + source_key + locale` identities before any index write.
 
+Each document may also store a safe Laravel source-connection name. The built-in
+Eloquent provider captures the model's resolved connection at indexing time.
+This name is semantic document data, but is not part of document or source
+identity and contains no credentials or connection configuration. Custom and
+virtual providers may leave it null.
+
 ```php
 $set = PersianSearch::documentsFor($source); // Build and validate; no writes
 $result = PersianSearch::indexSource($source); // Complete atomic replacement
@@ -424,6 +430,93 @@ retrieval remains portable but is not generally accelerated by ordinary B-tree
 indexes. Strict candidate limits bound the work without claiming fuzzy, BM25,
 or full-text relevance.
 
+### Result windows, pagination, and facets
+
+Final limit and offset are applied only after the complete available candidate
+window has been ranked. `knownTotal` is the size of that ranked window.
+`totalIsExact` is true only when no candidate bound hid possible matches.
+Otherwise `isTruncated` is true and `truncationReasons` identifies a
+per-variant limit, the global candidate limit, or unexecuted later variants.
+Facets and group counts inherit the same exactness; they never claim a
+database-wide total for a truncated window.
+
+```php
+use Zarbinco\PersianSearch\Search\SearchFacetField;
+
+$page = PersianSearch::query('orange juice')
+    ->locale('en')
+    ->types(['product', 'page'])
+    ->facets([
+        SearchFacetField::SourceType,
+        SearchFacetField::Partition,
+    ])
+    ->paginate(
+        perPage: 15,
+        page: 1,
+    );
+```
+
+`$page->metadata` contains the page, per-page size, returned count, known total,
+total exactness, exact last page or `null`, previous/next flags, one-based
+`from`/`to` positions, candidate limit, and truncation reasons. Explicit
+`limit()` or `offset()` cannot be combined with `paginate()`. Asking for a page
+at or beyond the end of a truncated known window throws instead of returning a
+misleading empty page.
+
+Supported facet fields are `source_type`, `partition`, and `locale`. Facets are
+optional, counted in memory over the full filtered ranked window, and ordered
+by count descending then binary value ascending. Their behavior is
+conjunctive: existing type, partition, and exact-locale filters remain applied.
+`$page->facets->sourceTypeCounts()` and `$results->typeCounts()` derive their
+map from a requested source-type facet without another query.
+
+Grouping by source type retains full-window known counts and global rank order
+inside every bounded group:
+
+```php
+$groups = PersianSearch::query('orange juice')
+    ->locale('en')
+    ->groupBySourceType(perGroupLimit: 3);
+```
+
+A diverse preview first takes up to `perType` results from each type in global
+rank order, then fills remaining slots from unselected ranked results. The
+selected items retain their original relative order:
+
+```php
+$preview = PersianSearch::query('orange juice')
+    ->locale('en')
+    ->preview(
+        limit: 8,
+        perType: 2,
+    );
+```
+
+Source models are hydrated only after slicing, grouping, or preview selection.
+Selected IDs are batched by model class, persisted source connection, and model
+key name. A stored connection is applied before the exact-key query, so equal
+model classes and IDs from different databases cannot collide. A null
+connection uses the model's normal default. Missing named connections fail
+instead of silently falling back, and virtual results remain present with
+`model === null`.
+
+Non-searchable queries use one shared empty-result path for results, pages,
+previews, groups, and model collections. They never call the expander, search
+driver, ranker, hydrator, or database. Empty metadata is exact and reports the
+configured global candidate limit; requested facets remain an empty collection.
+
+Grouped results distinguish two independent dimensions:
+
+- `countsAreExact` describes whether candidate-window bounds can hide group
+  items.
+- `groupsAreComplete` describes whether `maximum_groups` omitted source-type
+  groups.
+
+The group collection also exposes `knownGroupTotal`, `returnedGroups`,
+`isTruncated`, and `maximumGroups`. Public result metadata validates counts,
+limits, exactness flags, truncation reasons, item types, and uniqueness before
+it can be serialized.
+
 The fluent `query()` and existing `search()` alias process lazily at execution time, so the final effective locale is used regardless of builder call order. The query processor, expansion context, diagnostics, and database filter all receive that same resolved locale. Non-searchable model queries return an empty collection without accessing the search table.
 
 Default text components can be replaced through Laravel's container by binding `SearchTextSanitizer`, `SearchTextNormalizer`, or `SearchTokenizer` before the pipeline is resolved.
@@ -443,7 +536,12 @@ Every current model is rebuilt through atomic source replacement. Command output
 
 See [docs/architecture.md](docs/architecture.md) for the identity and storage design.
 
-The default database implementation is intentionally portable and simple. It does not provide pagination, facets, advanced ranking, dependency reindexing, cross-locale bridging, or typo-tolerant search.
+The default database implementation is intentionally portable and bounded.
+Offset pagination is stable only while the index and ranking inputs remain
+unchanged. Candidate limits can make totals and facets inexact, and increasing
+them increases query and memory work. Leading-wildcard substring retrieval is
+not full-text-index optimized. Cursor pagination, dependency reindexing,
+cross-locale bridging, and typo-tolerant search are not provided.
 
 ## Testing
 

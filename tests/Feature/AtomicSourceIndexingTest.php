@@ -506,6 +506,7 @@ final class AtomicSourceIndexingTest extends TestCase
         return [
             'title mutation' => ['title', 'Observer secret title'],
             'payload mutation' => ['payload', ['secret-payload' => 'hidden']],
+            'source connection mutation' => ['source_connection', 'observer_connection'],
         ];
     }
 
@@ -884,7 +885,12 @@ final class AtomicSourceIndexingTest extends TestCase
 
         if ($operation === 'create') {
             SearchDocumentRecord::creating(static function (SearchDocumentRecord $record) use ($field): void {
-                $record->setAttribute($field, $field === 'payload' ? ['secret' => 'payload-value'] : 'Observer title');
+                $value = match ($field) {
+                    'payload' => ['secret' => 'payload-value'],
+                    'source_connection' => 'observer_connection',
+                    default => 'Observer title',
+                };
+                $record->setAttribute($field, $value);
             });
         } else {
             PersianSearch::indexDocument($original);
@@ -919,6 +925,7 @@ final class AtomicSourceIndexingTest extends TestCase
         return [
             'create title mutation' => ['create', 'title'],
             'create payload mutation' => ['create', 'payload'],
+            'create source connection mutation' => ['create', 'source_connection'],
             'update reset' => ['update', 'title'],
         ];
     }

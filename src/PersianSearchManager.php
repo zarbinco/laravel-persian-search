@@ -17,10 +17,12 @@ use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
 use Zarbinco\PersianSearch\Providers\SearchDocumentSet;
 use Zarbinco\PersianSearch\Providers\SearchSourceReference;
+use Zarbinco\PersianSearch\Search\EmptySearchResultFactory;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
+use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Text\PreparedSearchText;
 use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
@@ -37,6 +39,8 @@ final class PersianSearchManager
         private readonly SearchDriver $driver,
         private readonly QueryExpander $expander,
         private readonly SearchDocumentProviderRegistry $providers,
+        private readonly SearchResultPolicy $resultPolicy,
+        private readonly EmptySearchResultFactory $emptyResults,
     ) {}
 
     public function textPipeline(): SearchTextPipeline
@@ -159,7 +163,14 @@ final class PersianSearchManager
 
     public function query(mixed $query): SearchQueryBuilder
     {
-        return new SearchQueryBuilder($query, $this->queryProcessor(), $this->driver, $this->expander);
+        return new SearchQueryBuilder(
+            $query,
+            $this->queryProcessor(),
+            $this->driver,
+            $this->expander,
+            $this->resultPolicy,
+            $this->emptyResults,
+        );
     }
 
     public function search(mixed $query): SearchQueryBuilder

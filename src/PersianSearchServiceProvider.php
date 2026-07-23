@@ -56,8 +56,13 @@ use Zarbinco\PersianSearch\Ranking\ProfessionalSearchRanker;
 use Zarbinco\PersianSearch\Ranking\SearchRankingPolicy;
 use Zarbinco\PersianSearch\Ranking\SearchRankingPolicyFactory;
 use Zarbinco\PersianSearch\Ranking\SearchRankMatcher;
+use Zarbinco\PersianSearch\Search\EmptySearchResultFactory;
+use Zarbinco\PersianSearch\Search\SearchFacetBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryPolicy;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
+use Zarbinco\PersianSearch\Search\SearchResultHydrator;
+use Zarbinco\PersianSearch\Search\SearchResultPolicy;
+use Zarbinco\PersianSearch\Search\SearchResultPolicyFactory;
 use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
 use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
 use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
@@ -116,6 +121,13 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(SearchRankMatcher::class, SearchRankMatcher::class);
         $this->app->singleton(ProfessionalSearchRanker::class, ProfessionalSearchRanker::class);
         $this->app->alias(ProfessionalSearchRanker::class, SearchRanker::class);
+        $this->app->singleton(SearchResultPolicyFactory::class, SearchResultPolicyFactory::class);
+        $this->app->singleton(SearchResultPolicy::class, function ($app): SearchResultPolicy {
+            return $app->make(SearchResultPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchFacetBuilder::class, SearchFacetBuilder::class);
+        $this->app->singleton(SearchResultHydrator::class, SearchResultHydrator::class);
+        $this->app->singleton(EmptySearchResultFactory::class, EmptySearchResultFactory::class);
 
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
@@ -185,6 +197,10 @@ final class PersianSearchServiceProvider extends ServiceProvider
             return new DatabaseSearchDriver(
                 $app->make(SearchRanker::class),
                 $app->make(SearchCandidateDriver::class),
+                $app->make(SearchCandidatePolicy::class),
+                $app->make(SearchResultPolicy::class),
+                $app->make(SearchFacetBuilder::class),
+                $app->make(SearchResultHydrator::class),
             );
         });
 
@@ -269,6 +285,8 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchDriver::class),
                 $app->make(QueryExpander::class),
                 $app->make(SearchDocumentProviderRegistry::class),
+                $app->make(SearchResultPolicy::class),
+                $app->make(EmptySearchResultFactory::class),
             );
         });
 

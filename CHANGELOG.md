@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Persist the validated Laravel source-connection name as semantic search-document data and hydrate selected Eloquent results from that exact connection.
+- Prevent same-class and same-key hydration collisions across source databases by batching and mapping on connection plus model key name.
+- Centralize exact empty outputs so every non-searchable public search surface skips expansion, drivers, ranking, hydration, and SQL while reporting configured limits consistently.
+- Expose known/returned group totals, configured group capacity, and group-list completeness separately from candidate-window count exactness.
+- Validate public result-window, page, preview, facet, result, and group metadata invariants before serialization.
+- Added immutable ranked result windows with explicit exact/inexact known totals and typed truncation reasons.
+- Applied result limits, offsets, and page slicing only after professional ranking, with truthful page metadata and truncated-window guards.
+- Added optional conjunctive source-type, partition, and locale facets counted over the full ranked window, plus derived source-type counts.
+- Added deterministic source-type grouping and a two-pass diversity preview that preserve global ranking order.
+- Deferred Eloquent hydration until final selection and batch selected IDs by model class and connection while retaining virtual results.
 - Compare arbitrary-size numeric search-document identities without PHP integer overflow and preserve a strict final ordering for textual numeric variants.
 - Make ranked-candidate deduplication retain the semantically better duplicate while preserving the first equal rank.
 - Removed obsolete optional-score query state so `results()`, `get()`, and `first()` share one professional-ranking path.

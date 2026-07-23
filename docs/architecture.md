@@ -153,9 +153,83 @@ integration when those services are unavailable.
 
 ## Results and hydration
 
-Every search result contains its `SearchDocumentRecord`. When `source_type` is an Eloquent model class and `source_id` resolves to a record, the result also contains that model. Virtual documents, arbitrary source types, and deleted model records remain valid results with a null model.
+Result processing starts from one immutable ranked window:
 
-`SearchResults` also exposes its `ProcessedSearchQuery`, `status()`, and `isSearchableQuery()`. Non-searchable results have no items or models and a total of zero.
+```text
+processed query and variants
+→ bounded candidate retrieval with truncation evidence
+→ professional ranking once
+→ known-total and optional in-memory facets
+→ final slice, page, groups, or two-pass preview selection
+→ batched hydration of selected source IDs
+→ immutable public result object
+```
+
+`SearchResultWindow::knownTotal` is always the number of available rankable
+candidates. It is exact only when per-variant capacity was not exceeded, global
+candidate capacity was not reached, and no later variant was skipped.
+Truncated windows expose ordered typed reasons and never provide an exact last
+page. A page whose offset is at or beyond a truncated known window is rejected
+because the requested results may exist outside the available candidates.
+
+Plain results apply offset and limit after ranking. Page pagination owns the
+final slice and therefore rejects an explicit builder limit or offset. Exact
+page metadata contains the last page; inexact metadata uses `null`.
+`hasNextPage` remains true while more known items exist or truncation means
+additional items may exist. Offset pagination assumes the index and all ranking
+inputs stay unchanged between requests; cursor pagination is not implemented.
+
+Optional `source_type`, `partition`, and `locale` facets are counted in one
+in-memory pass over the full already-filtered ranked window, never page items.
+They are conjunctive, perform no aggregation query or hydration, and inherit
+window exactness. Source-type convenience counts are derived from that facet
+rather than stored twice.
+
+Source-type grouping performs one full-window grouping pass, retains the global
+rank order of selected group items, and orders groups by first ranked item,
+known count descending, then binary type. Preview performs a diversity-capped
+pass followed by a fill pass and finally restores selected candidates to global
+relative order. Neither path randomizes or reranks.
+
+Group-list completeness is separate from candidate-window exactness.
+`countsAreExact` follows the candidate window, while `knownGroupTotal`,
+`returnedGroups`, `groupsAreComplete`, `isTruncated`, and `maximumGroups`
+describe whether the configured output cap omitted complete source-type groups.
+Omitted groups are never hydrated.
+
+Every search result contains its `SearchDocumentRecord`. Once selection is
+complete, source IDs are batched by Eloquent model class, persisted source
+connection, and key name. `source_connection` stores only a validated Laravel
+connection name and participates in semantic hashing and persistence
+verification; it is not part of storage identity or `SearchSourceReference`.
+The built-in provider captures `$model->getConnection()->getName()` at indexing
+time. Hydration applies a non-null stored connection before constructing the
+exact-key query and includes it in model-map identity, preventing same-class,
+same-key collisions across databases. Null continues to use the model default,
+and an unavailable named connection is surfaced without fallback.
+
+Soft-deleting models use `withTrashed()` only when configured. Virtual
+documents, arbitrary source types, missing records, and null source IDs remain
+valid results with a null model. Relations are removed from serialized hydrated
+models.
+
+`SearchResults` exposes its processed query, winning variants, ranked items,
+known total, total exactness, truncation reasons, facets, and applied slice.
+Non-searchable queries return an exact empty result without expansion, driver
+access, ranking, SQL, or hydration. One empty-result factory creates results,
+pages, previews, and groups with the configured candidate and result limits,
+empty facets, exact zero totals, and consistent serialization.
+
+Public result constructors reject contradictory states: invalid item types,
+duplicate identities or buckets/groups, impossible counts, invalid limits,
+inconsistent exactness/truncation flags, mismatched truncation reasons, unsafe
+facet identifiers, and overflowing page positions cannot enter serialized
+output.
+
+Candidate capacity bounds memory and query work, but may make totals, facets,
+and group counts inexact. Increasing those limits increases work.
+Leading-wildcard substring retrieval remains bounded but is not full-text-index
+optimized.
 
 ## Provider architecture
 

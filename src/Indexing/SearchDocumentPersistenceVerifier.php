@@ -15,6 +15,7 @@ final class SearchDocumentPersistenceVerifier
             'source_key' => $document->sourceKey(),
             'source_type' => $document->sourceType,
             'source_id' => $document->sourceId,
+            'source_connection' => $document->sourceConnection,
             'locale' => $document->locale(),
             'title' => $document->title,
             'excerpt' => $document->excerpt,

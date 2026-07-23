@@ -16,6 +16,7 @@ return new class extends Migration
                 $table->string('source_key', 191);
                 $table->string('source_type');
                 $table->string('source_id')->nullable();
+                $table->string('source_connection')->nullable();
                 $table->string('locale', 32)->default('und');
                 $table->text('title')->nullable();
                 $table->text('excerpt')->nullable();

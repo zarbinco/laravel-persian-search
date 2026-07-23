@@ -82,6 +82,7 @@ final readonly class SearchDocumentBuilder
             priority: 0,
             isActive: true,
             sourceUpdatedAt: $this->sourceUpdatedAt($model),
+            sourceConnection: $model->getConnection()->getName(),
         );
     }
 

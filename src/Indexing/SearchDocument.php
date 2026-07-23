@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch\Indexing;
 use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
+use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
 
 final readonly class SearchDocument
 {
@@ -40,13 +41,18 @@ final readonly class SearchDocument
         public int $priority = 0,
         public bool $isActive = true,
         ?DateTimeInterface $sourceUpdatedAt = null,
+        public ?string $sourceConnection = null,
     ) {
         $this->identity = new SearchDocumentIdentity($partition, $sourceKey, $locale);
         $this->sourceType = trim($sourceType);
         $this->sourceId = is_int($sourceId) ? (string) $sourceId : $sourceId;
 
-        if ($this->sourceType === '') {
-            throw new InvalidArgumentException('Search document source type must not be empty.');
+        if (! CanonicalConfigurationName::isValid($this->sourceType)) {
+            throw new InvalidArgumentException('Search document source type must be a safe non-empty string.');
+        }
+
+        if ($this->sourceConnection !== null && ! CanonicalConfigurationName::isValid($this->sourceConnection)) {
+            throw new InvalidArgumentException('Search document source connection must be a canonical safe connection name.');
         }
 
         $safePayload = SearchDocumentHasher::jsonSafeValue($payload);
@@ -81,6 +87,7 @@ final readonly class SearchDocument
             ...$this->identity->toArray(),
             'source_type' => $this->sourceType,
             'source_id' => $this->sourceId,
+            'source_connection' => $this->sourceConnection,
             'title' => $this->title,
             'excerpt' => $this->excerpt,
             'normalized_title' => $this->normalizedTitle,
