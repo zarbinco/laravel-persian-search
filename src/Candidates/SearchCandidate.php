@@ -14,7 +14,7 @@ final readonly class SearchCandidate
     /** @param array<int, mixed> $matches */
     public function __construct(
         public SearchDocumentRecord $document,
-        public QueryVariant $bestVariant,
+        public QueryVariant $retrievalVariant,
         array $matches,
     ) {
         if ($this->document->getKey() === null) {
@@ -50,9 +50,9 @@ final readonly class SearchCandidate
 
     public function withMatch(SearchCandidateMatch $match): self
     {
-        $best = $match->variant->priority > $this->bestVariant->priority
+        $best = $match->variant->priority > $this->retrievalVariant->priority
             ? $match->variant
-            : $this->bestVariant;
+            : $this->retrievalVariant;
 
         return new self($this->document, $best, [...$this->matches, $match]);
     }
@@ -62,7 +62,7 @@ final readonly class SearchCandidate
     {
         return [
             'document_id' => $this->identity(),
-            'best_variant' => $this->bestVariant->toArray(),
+            'retrieval_variant' => $this->retrievalVariant->toArray(),
             'matches' => array_map(static fn (SearchCandidateMatch $match): array => $match->toArray(), $this->matches),
         ];
     }

@@ -129,7 +129,7 @@ final class SearchQueryBuilder
 
     public function results(): SearchResults
     {
-        $query = $this->queryObject(true);
+        $query = $this->queryObject();
 
         if (! $query->processedQuery->isSearchable()) {
             return new SearchResults($query, $query->processedQuery, [], 0);
@@ -141,7 +141,7 @@ final class SearchQueryBuilder
     /** @return Collection<int, Model> */
     public function get(): Collection
     {
-        $query = $this->queryObject(false);
+        $query = $this->queryObject();
 
         if (! $query->processedQuery->isSearchable()) {
             return collect();
@@ -155,7 +155,7 @@ final class SearchQueryBuilder
         return $this->limit(1)->get()->first();
     }
 
-    private function queryObject(bool $includeScores): SearchQuery
+    private function queryObject(): SearchQuery
     {
         $processed = $this->processor->process($this->query, $this->processingLocale());
         if (! $processed->isSearchable()) {
@@ -175,7 +175,6 @@ final class SearchQueryBuilder
             partition: $this->partition,
             limit: min(max(1, (int) config('persian-search.search.max_limit', 100)), max(1, $this->limit)),
             offset: $this->offset,
-            includeScores: $includeScores,
             processedQuery: $processed,
             variants: $variants,
         );

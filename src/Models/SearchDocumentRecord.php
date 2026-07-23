@@ -11,7 +11,7 @@ use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
 use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 
 /**
- * @property int $id
+ * @property string $id
  * @property string $partition
  * @property string $source_key
  * @property string $source_type
@@ -33,6 +33,8 @@ use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 final class SearchDocumentRecord extends Model
 {
     protected $guarded = [];
+
+    protected $keyType = 'string';
 
     public function getTable(): string
     {

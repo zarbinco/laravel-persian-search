@@ -120,7 +120,7 @@ final class PersianSearchFoundationTest extends TestCase
         foreach ([
             __DIR__.'/../../src/Search/SearchQueryBuilder.php',
             __DIR__.'/../../src/Drivers/DatabaseSearchDriver.php',
-            __DIR__.'/../../src/Ranking/BasicRanker.php',
+            __DIR__.'/../../src/Ranking/ProfessionalSearchRanker.php',
         ] as $path) {
             $contents = file_get_contents($path);
 

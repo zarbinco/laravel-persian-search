@@ -4,23 +4,24 @@ namespace Zarbinco\PersianSearch\Search;
 
 use Illuminate\Database\Eloquent\Model;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Ranking\SearchRank;
 
 final readonly class SearchResult
 {
+    public QueryVariant $matchedVariant;
+
     public string $candidateSource;
 
     public string $matchedQuery;
 
     public string $matchedLocale;
 
-    /** @param list<string> $matchedTokens */
     public function __construct(
         public SearchDocumentRecord $record,
         public ?Model $model,
-        public int|float $score,
-        public array $matchedTokens,
-        public QueryVariant $matchedVariant,
+        public SearchRank $rank,
     ) {
+        $this->matchedVariant = $this->rank->variant;
         $this->candidateSource = $this->matchedVariant->source->value;
         $this->matchedQuery = $this->matchedVariant->query;
         $this->matchedLocale = $this->matchedVariant->locale;
@@ -32,8 +33,7 @@ final readonly class SearchResult
         return [
             'record' => $this->record,
             'model' => $this->model,
-            'score' => $this->score,
-            'matched_tokens' => $this->matchedTokens,
+            'rank' => $this->rank->toArray(),
             'matched_variant' => $this->matchedVariant->toArray(),
             'candidate_source' => $this->candidateSource,
             'matched_query' => $this->matchedQuery,

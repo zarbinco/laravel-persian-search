@@ -17,7 +17,6 @@ final readonly class SearchQuery
         public string $partition,
         public int $limit,
         public int $offset,
-        public bool $includeScores,
         public ProcessedSearchQuery $processedQuery,
         private QueryVariantCollection $variants,
     ) {}
@@ -49,7 +48,6 @@ final readonly class SearchQuery
             'partition' => $this->partition,
             'limit' => $this->limit,
             'offset' => $this->offset,
-            'include_scores' => $this->includeScores,
             'processed_query' => $this->processedQuery->toArray(),
             'variants' => $this->variants->toArray(),
         ];

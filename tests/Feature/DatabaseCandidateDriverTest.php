@@ -169,7 +169,7 @@ final class DatabaseCandidateDriverTest extends TestCase
         $this->assertContains('en', $queries[1]->bindings);
         $this->assertContains('fa', $queries[2]->bindings);
         $english = $candidates->all()[0];
-        $this->assertSame(QueryVariantSource::Original, $english->bestVariant->source);
+        $this->assertSame(QueryVariantSource::Original, $english->retrievalVariant->source);
         $this->assertCount(2, $english->matches);
     }
 
@@ -378,7 +378,6 @@ final class DatabaseCandidateDriverTest extends TestCase
             $partition,
             20,
             0,
-            true,
             $processed,
             new QueryVariantCollection(20, $variants),
         );

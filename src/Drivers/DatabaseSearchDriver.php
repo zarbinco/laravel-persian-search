@@ -7,8 +7,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use LogicException;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Contracts\SearchRanker;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
-use Zarbinco\PersianSearch\Ranking\BasicRanker;
+use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchResult;
 use Zarbinco\PersianSearch\Search\SearchResults;
@@ -16,7 +17,7 @@ use Zarbinco\PersianSearch\Search\SearchResults;
 final readonly class DatabaseSearchDriver implements SearchDriver
 {
     public function __construct(
-        private BasicRanker $ranker,
+        private SearchRanker $ranker,
         private SearchCandidateDriver $candidates,
     ) {}
 
@@ -28,19 +29,17 @@ final readonly class DatabaseSearchDriver implements SearchDriver
 
         $ranked = $this->ranker->rank($this->candidates->candidates($query));
         $models = $this->hydrateModels(array_map(
-            static fn (array $item): SearchDocumentRecord => $item['candidate']->document,
-            $ranked,
+            static fn (SearchRankedCandidate $item): SearchDocumentRecord => $item->candidate->document,
+            $ranked->all(),
         ));
         $items = [];
 
         foreach ($ranked as $item) {
-            $record = $item['candidate']->document;
+            $record = $item->candidate->document;
             $items[] = new SearchResult(
                 record: $record,
                 model: $models[$record->source_type.'|'.$record->source_id] ?? null,
-                score: $item['score'],
-                matchedTokens: $item['matched_tokens'],
-                matchedVariant: $item['candidate']->bestVariant,
+                rank: $item->rank,
             );
         }
 

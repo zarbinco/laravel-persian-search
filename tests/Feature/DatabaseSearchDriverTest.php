@@ -6,14 +6,19 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use ReflectionClass;
+use ReflectionProperty;
 use Zarbinco\PersianCore\Facades\Persian;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Contracts\SearchRanker;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
+use Zarbinco\PersianSearch\Ranking\ProfessionalSearchRanker;
+use Zarbinco\PersianSearch\Ranking\SearchRankTier;
 use Zarbinco\PersianSearch\Search\SearchResult;
 use Zarbinco\PersianSearch\Tests\TestCase;
 
@@ -47,9 +52,10 @@ final class DatabaseSearchDriverTest extends TestCase
         $this->assertInstanceOf(SearchResult::class, $result);
         $this->assertTrue($product->is($result->model));
         $this->assertInstanceOf(SearchDocumentRecord::class, $result->record);
-        $this->assertGreaterThan(0, $result->score);
+        $this->assertGreaterThan(0, $result->rank->tierScore);
         $this->assertTrue($product->is($results->models()->first()));
         $this->assertTrue($product->is(DriverProduct::persianSearch('کیک')->get()->first()));
+        $this->assertInstanceOf(ProfessionalSearchRanker::class, app(SearchRanker::class));
     }
 
     public function test_virtual_results_are_not_discarded_and_models_excludes_them(): void
@@ -237,6 +243,108 @@ final class DatabaseSearchDriverTest extends TestCase
         $this->assertCount(1, $results->items());
     }
 
+    public function test_professional_tiers_determine_public_search_order_and_rank_metadata(): void
+    {
+        $documents = [
+            $this->rankingDocument('exact', title: 'orange juice'),
+            $this->rankingDocument('prefix', title: 'orange juice drink'),
+            $this->rankingDocument('title-phrase', title: 'fresh orange juice drink'),
+            $this->rankingDocument('title-all', title: 'juice from orange'),
+            $this->rankingDocument('title-any', title: 'orange only'),
+            $this->rankingDocument('keywords', keywords: 'fresh orange juice'),
+            $this->rankingDocument('excerpt', excerpt: 'fresh orange juice'),
+            $this->rankingDocument('content', content: 'fresh orange juice'),
+        ];
+
+        foreach (array_reverse($documents) as $document) {
+            PersianSearch::indexDocument($document);
+        }
+
+        $results = PersianSearch::query('orange juice')->locale('en')->type('page')->partition('public')->results();
+        $tiers = array_map(static fn (SearchResult $result): SearchRankTier => $result->rank->tier, $results->items());
+
+        $this->assertSame([
+            SearchRankTier::ExactTitle,
+            SearchRankTier::TitlePrefix,
+            SearchRankTier::TitlePhrase,
+            SearchRankTier::TitleAllTokens,
+            SearchRankTier::TitleAnyToken,
+            SearchRankTier::KeywordsPhrase,
+            SearchRankTier::ExcerptPhrase,
+            SearchRankTier::ContentPhrase,
+        ], $tiers);
+        $this->assertSame('exact_title', $results->items()[0]->toArray()['rank']['tier']);
+        $this->assertSame(1400, $results->items()[0]->rank->tierScore);
+        $this->assertSame($results->items()[0]->rank->variant, $results->items()[0]->matchedVariant);
+        $this->assertArrayNotHasKey('score', $results->items()[0]->toArray());
+    }
+
+    public function test_better_semantic_variant_wins_public_result_provenance(): void
+    {
+        config()->set('persian-search.synonyms.enabled', true);
+        config()->set('persian-search.synonyms.locales', ['en' => ['orange juice' => ['fruit drink']]]);
+        PersianSearch::indexDocument($this->rankingDocument(
+            'variant-winner',
+            title: 'fruit drink',
+            content: 'orange juice',
+        ));
+
+        $result = PersianSearch::query('orange juice')->locale('en')->type('page')->partition('public')->results()->items()[0];
+
+        $this->assertSame(SearchRankTier::ExactTitle, $result->rank->tier);
+        $this->assertSame('synonym', $result->candidateSource);
+        $this->assertSame('fruit drink', $result->matchedQuery);
+        $this->assertSame($result->rank->variant, $result->matchedVariant);
+    }
+
+    public function test_results_get_and_first_share_professional_ranked_semantics_without_include_scores(): void
+    {
+        $content = DriverProduct::create(['title' => 'Other', 'description' => 'orange juice', 'locale' => 'en']);
+        $exact = DriverProduct::create(['title' => 'orange juice', 'description' => null, 'locale' => 'en']);
+        PersianSearch::index($content);
+        PersianSearch::index($exact);
+
+        $results = DriverProduct::persianSearch('orange juice')->locale('en')->results();
+        $models = DriverProduct::persianSearch('orange juice')->locale('en')->get();
+        $first = DriverProduct::persianSearch('orange juice')->locale('en')->first();
+        $serialized = $results->query->toArray();
+
+        $modelKeys = $models->map(static fn (Model $model): mixed => $model->getKey())->all();
+        $this->assertSame([$exact->getKey(), $content->getKey()], $modelKeys);
+        $this->assertTrue($exact->is($first));
+        $this->assertSame(
+            array_map(static fn (SearchResult $result): mixed => $result->model?->getKey(), $results->items()),
+            $modelKeys,
+        );
+        $this->assertSame(SearchRankTier::ExactTitle, $results->items()[0]->rank->tier);
+        $publicProperties = array_map(
+            static fn (ReflectionProperty $property): string => $property->getName(),
+            (new ReflectionClass($results->query))->getProperties(ReflectionProperty::IS_PUBLIC),
+        );
+        $this->assertNotContains('includeScores', $publicProperties);
+        $this->assertArrayNotHasKey('include_scores', $serialized);
+
+        foreach (['processed_query', 'variants', 'locale', 'partition', 'source_types', 'limit', 'offset'] as $key) {
+            $this->assertArrayHasKey($key, $serialized);
+        }
+    }
+
+    public function test_non_searchable_results_and_get_remain_database_free_after_query_simplification(): void
+    {
+        $queries = 0;
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        $results = PersianSearch::query(' ')->results();
+        $models = PersianSearch::query(' ')->get();
+
+        $this->assertTrue($results->isEmpty());
+        $this->assertTrue($models->isEmpty());
+        $this->assertSame(0, $queries);
+        $this->assertArrayNotHasKey('include_scores', $results->query->toArray());
+    }
+
     private function virtualDocument(
         bool $isActive = true,
         string $locale = 'fa',
@@ -258,6 +366,28 @@ final class DatabaseSearchDriverTest extends TestCase
             payload: ['route_name' => 'about'],
             priority: 10,
             isActive: $isActive,
+        );
+    }
+
+    private function rankingDocument(
+        string $key,
+        ?string $title = null,
+        ?string $keywords = null,
+        ?string $excerpt = null,
+        ?string $content = null,
+    ): SearchDocument {
+        return new SearchDocument(
+            partition: 'public',
+            sourceKey: "page:ranking:{$key}",
+            sourceType: 'page',
+            sourceId: null,
+            locale: 'en',
+            title: $title,
+            excerpt: $excerpt,
+            normalizedTitle: $title,
+            normalizedExcerpt: $excerpt,
+            normalizedKeywords: $keywords,
+            normalizedContent: $content,
         );
     }
 }

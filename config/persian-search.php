@@ -38,10 +38,22 @@ return [
     ],
 
     'ranking' => [
-        'exact_phrase' => 100,
-        'all_tokens' => 70,
-        'any_token' => 20,
-        'title_boost' => 2.0,
+        'tier_scores' => [
+            'exact_title' => 1400,
+            'title_prefix' => 1300,
+            'title_phrase' => 1200,
+            'title_all_tokens' => 1100,
+            'title_any_token' => 1000,
+            'keywords_phrase' => 900,
+            'keywords_all_tokens' => 850,
+            'keywords_any_token' => 800,
+            'excerpt_phrase' => 700,
+            'excerpt_all_tokens' => 650,
+            'excerpt_any_token' => 600,
+            'content_phrase' => 500,
+            'content_all_tokens' => 450,
+            'content_any_token' => 400,
+        ],
     ],
 
     'search' => [

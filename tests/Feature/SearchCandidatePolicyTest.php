@@ -118,7 +118,6 @@ final class SearchCandidatePolicyTest extends TestCase
             'public',
             20,
             0,
-            true,
             $processed,
             $variants,
         );

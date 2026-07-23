@@ -30,12 +30,6 @@ final readonly class SearchResults
             ->values();
     }
 
-    /** @return list<int|float> */
-    public function scores(): array
-    {
-        return array_map(static fn (SearchResult $result): int|float => $result->score, $this->items);
-    }
-
     public function isEmpty(): bool
     {
         return $this->items === [];

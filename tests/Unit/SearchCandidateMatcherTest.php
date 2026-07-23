@@ -56,7 +56,7 @@ final class SearchCandidateMatcherTest extends TestCase
         ));
     }
 
-    public function test_candidate_collection_deduplicates_document_merges_evidence_and_preserves_best_variant(): void
+    public function test_candidate_collection_deduplicates_document_merges_evidence_and_preserves_retrieval_variant(): void
     {
         $record = $this->record(1, ['normalized_title' => 'orange citrus']);
         $synonym = $this->variant('citrus', QueryVariantSource::Synonym, 600);
@@ -78,7 +78,7 @@ final class SearchCandidateMatcherTest extends TestCase
 
         $this->assertCount(1, $collection);
         $this->assertTrue($collection->isFull());
-        $this->assertSame(QueryVariantSource::Original, $collection->all()[0]->bestVariant->source);
+        $this->assertSame(QueryVariantSource::Original, $collection->all()[0]->retrievalVariant->source);
         $this->assertCount(2, $collection->all()[0]->matches);
         $this->assertSame($collection->toArray(), $collection->toArray());
     }

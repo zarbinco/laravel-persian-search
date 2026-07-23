@@ -301,7 +301,8 @@ $results = PersianSearch::query('درباره')
 foreach ($results->items() as $result) {
     $result->record; // Always available
     $result->model;  // Eloquent model or null
-    $result->score;
+    $result->rank->tier;
+    $result->rank->tierScore;
 }
 ```
 
@@ -311,11 +312,17 @@ Eloquent convenience searches still return model collections:
 $products = Product::persianSearch('كیك شکلاتي')->get();
 ```
 
-`SearchResults::models()` contains only successfully hydrated models. Missing Eloquent records do not invalidate document results.
+`get()` and `first()` always use the same professional ranking path as
+`results()`. `get()` returns successfully hydrated models in ranked order,
+while `results()` additionally exposes structured rank metadata. Missing
+Eloquent records do not invalidate document results.
 
 The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type and partition filters. Each query variant is searched using its own exact locale. A corrected English-layout query can therefore return a Persian document directly; localized counterpart resolution is not performed.
 
-Each `SearchResult` exposes its typed `matchedVariant`. The convenience fields `candidateSource`, `matchedQuery`, and `matchedLocale` are derived from that object. If one stored document matches multiple variants, the driver keeps one result using variant priority first, score second, and stable variant order for ties.
+Each `SearchResult` exposes its winning structured `rank`. Its
+`matchedVariant`, `candidateSource`, `matchedQuery`, and `matchedLocale`
+properties are derived from the rank's winning variant, so provenance cannot
+contradict ranking.
 
 ### Database candidate retrieval
 
@@ -353,7 +360,7 @@ Rows returned by the database are checked again with exact PHP substring
 matching. This removes collation-only false positives and defines final
 candidate inclusion consistently. A persisted document matching several terms,
 fields, or variants becomes one candidate, retains deterministic match evidence,
-and uses the highest-priority matching variant for provenance.
+and preserves all matching variant evidence for ranking.
 
 SQLite candidate execution is covered by the integration suite. MySQL and
 PostgreSQL grammar tests verify their quoted columns, bound patterns,
@@ -361,10 +368,61 @@ PostgreSQL grammar tests verify their quoted columns, bound patterns,
 PostgreSQL service integration requires those services to be supplied by the
 application test environment.
 
-The current ranker remains intentionally basic and runs after candidate
-retrieval. Leading-wildcard substring searches are portable but are not
-generally accelerated by ordinary B-tree indexes; strict candidate limits keep
-work bounded without claiming full-text performance.
+### Professional ranking
+
+Ranking runs in PHP over the bounded candidate collection and never executes
+candidate or source-model queries. For each candidate, every variant present in
+its retrieval evidence is evaluated against the persisted normalized fields.
+The fixed tier order is:
+
+```text
+exact title
+title prefix → title phrase → title all tokens → title any token
+keywords phrase → keywords all tokens → keywords any token
+excerpt phrase → excerpt all tokens → excerpt any token
+content phrase → content all tokens → content any token
+```
+
+Prefix and phrase matching compare complete token sequences. A query token such
+as `گل` therefore does not prefix-match or phrase-match the token `گلدان`.
+All-token matching requires every unique query token; any-token matching records
+the matched count and deterministic integer coverage from 0 through 10,000
+basis points.
+
+A better semantic tier always wins before query-variant priority. This allows a
+synonym exact-title match to beat an original content match, while the original
+variant wins when both reach the same tier. Document priority is considered only
+after semantic tier, winning variant priority, coverage, and matched-token
+count.
+
+Final ties use document priority descending, normalized-title Unicode length
+ascending, then binary source key, partition, locale, and persisted document
+primary key. Numeric primary keys are compared as arbitrary-size unsigned
+decimal strings without integer or floating-point conversion; textually
+distinct equal numeric forms still receive a binary identity tie-break.
+Database collation, insertion order, timestamps, and current time do not
+influence ranking.
+
+```php
+foreach (
+    PersianSearch::query('orange juice')
+        ->locale('en')
+        ->results()
+        ->items()
+    as $result
+) {
+    echo $result->rank->tier->value;
+    echo $result->rank->tierScore;
+    echo $result->rank->variant->source->value;
+    echo $result->rank->coverageBasisPoints;
+}
+```
+
+Tier scores are validated positive, unique, and strictly descending diagnostics;
+they cannot invert the fixed semantic order. Leading-wildcard substring
+retrieval remains portable but is not generally accelerated by ordinary B-tree
+indexes. Strict candidate limits bound the work without claiming fuzzy, BM25,
+or full-text relevance.
 
 The fluent `query()` and existing `search()` alias process lazily at execution time, so the final effective locale is used regardless of builder call order. The query processor, expansion context, diagnostics, and database filter all receive that same resolved locale. Non-searchable model queries return an empty collection without accessing the search table.
 

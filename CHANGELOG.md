@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-- Added bounded, deterministic candidate plans and a dedicated database candidate driver before the existing basic ranker.
+- Compare arbitrary-size numeric search-document identities without PHP integer overflow and preserve a strict final ordering for textual numeric variants.
+- Make ranked-candidate deduplication retain the semantically better duplicate while preserving the first equal rank.
+- Removed obsolete optional-score query state so `results()`, `get()`, and `first()` share one professional-ranking path.
+- Replaced additive basic scoring with a deterministic professional ranking engine over bounded candidate collections.
+- Added fourteen fixed semantic tiers from exact title through content any-token, with strict validated diagnostic scores.
+- Added token-aware title prefix, contiguous phrase, all-token, and any-token matching with integer coverage.
+- Evaluate every candidate-matched query variant, selecting semantic quality before variant priority and preserving winning provenance.
+- Added stable PHP tie-breaks with document priority late in the sequence and structured rank metadata on every result.
+- Added bounded, deterministic candidate plans and a dedicated database candidate driver before PHP ranking.
 - Made substring SQL literal and parameterized with `LIKE ? ESCAPE '!'`, including explicit `%`, `_`, and escape-character handling.
 - Added exact PHP match verification, deterministic match evidence, and primary-key candidate deduplication across fields, terms, and variants.
 - Added strict candidate term, per-variant row, and global unique-candidate limits with one query per retained variant.

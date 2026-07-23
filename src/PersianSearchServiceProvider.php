@@ -20,6 +20,7 @@ use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
+use Zarbinco\PersianSearch\Contracts\SearchRanker;
 use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
@@ -51,7 +52,10 @@ use Zarbinco\PersianSearch\Query\SynonymDictionary;
 use Zarbinco\PersianSearch\Query\SynonymDictionaryFactory;
 use Zarbinco\PersianSearch\Query\TokenAwareSynonymExpander;
 use Zarbinco\PersianSearch\Query\WindowsPersianKeyboardMap;
-use Zarbinco\PersianSearch\Ranking\BasicRanker;
+use Zarbinco\PersianSearch\Ranking\ProfessionalSearchRanker;
+use Zarbinco\PersianSearch\Ranking\SearchRankingPolicy;
+use Zarbinco\PersianSearch\Ranking\SearchRankingPolicyFactory;
+use Zarbinco\PersianSearch\Ranking\SearchRankMatcher;
 use Zarbinco\PersianSearch\Search\SearchQueryPolicy;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
@@ -105,7 +109,13 @@ final class PersianSearchServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(BasicRanker::class, BasicRanker::class);
+        $this->app->singleton(SearchRankingPolicyFactory::class, SearchRankingPolicyFactory::class);
+        $this->app->singleton(SearchRankingPolicy::class, function ($app): SearchRankingPolicy {
+            return $app->make(SearchRankingPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchRankMatcher::class, SearchRankMatcher::class);
+        $this->app->singleton(ProfessionalSearchRanker::class, ProfessionalSearchRanker::class);
+        $this->app->alias(ProfessionalSearchRanker::class, SearchRanker::class);
 
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
@@ -173,7 +183,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(DatabaseSearchDriver::class, function ($app): DatabaseSearchDriver {
             return new DatabaseSearchDriver(
-                $app->make(BasicRanker::class),
+                $app->make(SearchRanker::class),
                 $app->make(SearchCandidateDriver::class),
             );
         });

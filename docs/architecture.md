@@ -102,16 +102,47 @@ inclusion.
 
 `SearchCandidateCollection` deduplicates by persisted document primary key,
 merges unique evidence across terms, fields, and variants, and retains the
-highest-priority matching variant. Different persisted locale or partition
-rows remain distinct. The global limit counts only new document identities;
-later plan queries are skipped once it is full. Candidate retrieval never
-hydrates source models.
+highest-priority retrieval variant without treating it as the final ranking
+winner. Different persisted locale or partition rows remain distinct. The
+global limit counts only new document identities; later plan queries are
+skipped once it is full. Candidate retrieval never hydrates source models.
 
-The existing basic ranker consumes the bounded collection after retrieval.
-Result sorting, virtual documents, optional batched Eloquent hydration, missing
-models, and `SearchResult` provenance remain unchanged. Results are not bridged
-to localized counterparts. Variant priority is provenance precedence, not a new
-ranking tier.
+`ProfessionalSearchRanker` consumes only that bounded collection. It tokenizes
+each non-empty normalized title, keywords, excerpt, and content field once per
+candidate with the package tokenizer, without another normalization pass. Every
+distinct variant in the candidate's match evidence is evaluated. Prefix and
+phrase checks compare exact token sequences; all-token and any-token checks use
+unique query tokens, with any-token coverage represented as integer basis
+points.
+
+The fixed semantic precedence is exact title; title prefix, phrase, all tokens,
+and any token; then the same phrase, all-token, and any-token progression for
+keywords, excerpt, and content. A better tier always precedes variant priority.
+Equal-tier variants compare their validated tier score, priority, coverage,
+matched-token count, and deterministic fingerprint. Candidates that cannot
+produce a token-aware rank are omitted as an internal integrity safeguard
+rather than receiving a fabricated fallback tier.
+
+`SearchRankedCandidateCollection` sorts winning ranks by tier, winning variant
+priority, coverage, matched-token count, persisted document priority, normalized
+title Unicode length, binary source key, partition, locale, and persisted
+primary key. Digit-only primary keys are retained as strings and compared by
+normalized decimal length, then lexical numeric value, then their original
+binary identity. This remains overflow-safe for arbitrary-size unsigned
+identifiers and guarantees that distinct identity strings never compare equal.
+Non-digit identities use binary comparison. Ranking does not inspect raw
+display fields, payload, database collation, timestamps, or current time. It
+performs no database query or source hydration. Optional batch Eloquent
+hydration remains in the result stage after ranking.
+
+Each `SearchResult` owns one immutable `SearchRank`. Its tier, validated score,
+field, matched tokens, integer coverage, and winning variant are safe structured
+diagnostics. Convenience provenance properties derive from that same variant.
+All candidate retrieval evidence remains on the ranked candidate during the
+ranking boundary. Virtual documents and missing source models remain valid.
+`results()`, `get()`, and `first()` share one query-construction and
+professional-ranking path; model-only retrieval cannot disable ranking and
+preserves ranked order.
 
 The existing equality indexes already cover stable partition, type, locale, and
 active-filter prefixes, so no schema index was added. Leading-wildcard
