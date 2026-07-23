@@ -27,8 +27,10 @@ return [
         'unique_for' => 300,
     ],
 
-    'database' => [
-        'max_candidates' => 500,
+    'candidates' => [
+        'maximum_terms_per_variant' => 10,
+        'per_variant_limit' => 100,
+        'maximum_candidates' => 500,
     ],
 
     'providers' => [

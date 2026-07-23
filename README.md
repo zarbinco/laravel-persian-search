@@ -317,6 +317,55 @@ The database driver searches `normalized_title`, `normalized_excerpt`, `normaliz
 
 Each `SearchResult` exposes its typed `matchedVariant`. The convenience fields `candidateSource`, `matchedQuery`, and `matchedLocale` are derived from that object. If one stored document matches multiple variants, the driver keeps one result using variant priority first, score second, and stable variant order for ties.
 
+### Database candidate retrieval
+
+Database retrieval is deliberately separate from ranking. Each retained query
+variant becomes one bounded plan containing its complete normalized phrase
+first, followed by unique searchable tokens. One SQL query is issued per plan,
+and processing stops before later variants once the global candidate capacity is
+full.
+
+```php
+'candidates' => [
+    'maximum_terms_per_variant' => 10, // maximum 50
+    'per_variant_limit' => 100,        // maximum 5,000
+    'maximum_candidates' => 500,       // maximum 20,000
+],
+```
+
+Only the fixed normalized title, keyword, excerpt, and content columns are
+searched. Every query also requires an active document and its variant's exact
+locale. Partition and source-type filters remain exact bound values.
+
+Text uses parameterized `LIKE ? ESCAPE '!'` conditions. The escape character
+`!` becomes `!!`, `%` becomes `!%`, and `_` becomes `!_`; backslashes and quotes
+remain ordinary bound characters. For example, `%` in this query is literal:
+
+```php
+$results = PersianSearch::query('100% juice')
+    ->locale('en')
+    ->types(['product'])
+    ->partition('public')
+    ->results();
+```
+
+Rows returned by the database are checked again with exact PHP substring
+matching. This removes collation-only false positives and defines final
+candidate inclusion consistently. A persisted document matching several terms,
+fields, or variants becomes one candidate, retains deterministic match evidence,
+and uses the highest-priority matching variant for provenance.
+
+SQLite candidate execution is covered by the integration suite. MySQL and
+PostgreSQL grammar tests verify their quoted columns, bound patterns,
+`LIKE ? ESCAPE '!'` syntax, grouping, filters, and limits. Actual MySQL or
+PostgreSQL service integration requires those services to be supplied by the
+application test environment.
+
+The current ranker remains intentionally basic and runs after candidate
+retrieval. Leading-wildcard substring searches are portable but are not
+generally accelerated by ordinary B-tree indexes; strict candidate limits keep
+work bounded without claiming full-text performance.
+
 The fluent `query()` and existing `search()` alias process lazily at execution time, so the final effective locale is used regardless of builder call order. The query processor, expansion context, diagnostics, and database filter all receive that same resolved locale. Non-searchable model queries return an empty collection without accessing the search table.
 
 Default text components can be replaced through Laravel's container by binding `SearchTextSanitizer`, `SearchTextNormalizer`, or `SearchTokenizer` before the pipeline is resolved.

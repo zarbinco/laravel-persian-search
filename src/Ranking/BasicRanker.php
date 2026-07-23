@@ -3,12 +3,53 @@
 namespace Zarbinco\PersianSearch\Ranking;
 
 use LogicException;
+use Zarbinco\PersianSearch\Candidates\SearchCandidate;
+use Zarbinco\PersianSearch\Candidates\SearchCandidateCollection;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Search\QueryVariant;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 
 final class BasicRanker
 {
+    /**
+     * @return list<array{candidate: SearchCandidate, score: float, matched_tokens: list<string>}>
+     */
+    public function rank(SearchCandidateCollection $candidates): array
+    {
+        $ranked = [];
+
+        foreach ($candidates as $candidate) {
+            $score = $this->scoreVariant($candidate->document, $candidate->bestVariant);
+
+            if ($score['score'] > 0) {
+                $ranked[] = [
+                    'candidate' => $candidate,
+                    'score' => $score['score'],
+                    'matched_tokens' => $score['matched_tokens'],
+                ];
+            }
+        }
+
+        usort($ranked, static function (array $left, array $right): int {
+            $score = $right['score'] <=> $left['score'];
+
+            if ($score !== 0) {
+                return $score;
+            }
+
+            $priority = $right['candidate']->document->priority <=> $left['candidate']->document->priority;
+
+            if ($priority !== 0) {
+                return $priority;
+            }
+
+            return [$left['candidate']->document->source_key, $left['candidate']->document->locale]
+                <=> [$right['candidate']->document->source_key, $right['candidate']->document->locale];
+        });
+
+        return $ranked;
+    }
+
     /** @return array{base_score: float, score: float, matched_tokens: list<string>} */
     public function score(SearchDocumentRecord $record, SearchQuery $query): array
     {

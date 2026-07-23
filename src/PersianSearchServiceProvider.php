@@ -7,10 +7,16 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Zarbinco\PersianCore\Contracts\PersianSearchNormalizerContract;
+use Zarbinco\PersianSearch\Candidates\LiteralLikeCondition;
+use Zarbinco\PersianSearch\Candidates\SearchCandidateMatcher;
+use Zarbinco\PersianSearch\Candidates\SearchCandidatePlanBuilder;
+use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicy;
+use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicyFactory;
 use Zarbinco\PersianSearch\Console\FlushCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
+use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
@@ -18,6 +24,7 @@ use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
+use Zarbinco\PersianSearch\Drivers\DatabaseCandidateDriver;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Exceptions\InvalidQueryVariantConfigurationException;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchDocumentProviderException;
@@ -154,9 +161,20 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(QueryExpander::class, DefaultQueryExpander::class);
 
+        $this->app->singleton(SearchCandidatePolicyFactory::class, SearchCandidatePolicyFactory::class);
+        $this->app->singleton(SearchCandidatePolicy::class, function ($app): SearchCandidatePolicy {
+            return $app->make(SearchCandidatePolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchCandidatePlanBuilder::class, SearchCandidatePlanBuilder::class);
+        $this->app->singleton(SearchCandidateMatcher::class, SearchCandidateMatcher::class);
+        $this->app->singleton(LiteralLikeCondition::class, LiteralLikeCondition::class);
+        $this->app->singleton(DatabaseCandidateDriver::class, DatabaseCandidateDriver::class);
+        $this->app->alias(DatabaseCandidateDriver::class, SearchCandidateDriver::class);
+
         $this->app->singleton(DatabaseSearchDriver::class, function ($app): DatabaseSearchDriver {
             return new DatabaseSearchDriver(
                 $app->make(BasicRanker::class),
+                $app->make(SearchCandidateDriver::class),
             );
         });
 

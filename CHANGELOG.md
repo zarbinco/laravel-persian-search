@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added bounded, deterministic candidate plans and a dedicated database candidate driver before the existing basic ranker.
+- Made substring SQL literal and parameterized with `LIKE ? ESCAPE '!'`, including explicit `%`, `_`, and escape-character handling.
+- Added exact PHP match verification, deterministic match evidence, and primary-key candidate deduplication across fields, terms, and variants.
+- Added strict candidate term, per-variant row, and global unique-candidate limits with one query per retained variant.
+- Preserved exact active, locale, partition, and source-type filters on the configured search-index connection, with SQLite execution and MySQL/PostgreSQL grammar coverage.
 - Acquire Laravel's real unique-job lock before lifecycle queue dispatch, suppress pending duplicates, and release the lock when a queue push fails.
 - Push lifecycle jobs with `beforeCommit()` so the captured source connection remains the only automatic transaction boundary.
 - Prepare custom provider references before deletion and dispatch only after a successful `deleted` event.

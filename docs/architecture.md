@@ -76,7 +76,49 @@ English-to-Persian is the only keyboard direction. English-family input uses one
 
 Synonym dictionaries are normalized once by a typed factory. Dictionaries are exact-locale and one-way. Rules match complete token sequences, preserve configured rule/replacement order and token position order, and create one replacement per variant. Each generator invocation maintains isolated deduplication state: repeated candidate token sequences are skipped before text preparation, then repeated normalized query-locale outputs are skipped before fingerprint and DTO creation. The first valid configured provenance wins. Empty terms, non-string replacements, malformed nesting, and normalized self-replacements fail with a focused configuration exception.
 
-The database driver executes each distinct variant against that variant's exact locale. Results are not bridged to localized counterparts. One stored record matching several variants is merged by variant priority, then score, with stable first occurrence as the final tie-break. Variant priority is provenance precedence, not ranking weight. `SearchResult::matchedVariant` is authoritative; `candidateSource`, `matchedQuery`, and `matchedLocale` are derived conveniences.
+Candidate retrieval is a separate boundary before ranking. A typed policy
+limits terms per variant, rows per variant, and globally retained unique
+candidates. `SearchCandidatePlanBuilder` preserves variant order and creates one
+plan per distinct variant. Each plan starts with the complete normalized query,
+then adds unique searchable tokens in their original order. Its fields are the
+closed `SearchDocumentField` enum: normalized title, keywords, excerpt, and
+content.
+
+`DatabaseCandidateDriver` executes at most one query per plan on the configured
+search-document connection. It first binds the active, exact variant locale,
+optional partition, and optional source-type filters. All term/field conditions
+are contained in one grouped expression. Columns are selected only from the
+enum and quoted by the active SQLite, MySQL, or PostgreSQL grammar. Text is
+always a binding for `LIKE ? ESCAPE '!'`; `!`, `%`, and `_` are escaped as
+`!!`, `!%`, and `!_`, while backslash has no special package meaning.
+Candidate rows use stable primary-key ordering and the per-variant SQL limit.
+
+The database query is only a possible-match filter because collation behavior
+differs. `SearchCandidateMatcher` performs exact `str_contains()` checks over
+the same normalized fields without another normalization pass. Null fields are
+ignored. Its evidence records only deterministic fields, terms, and variant
+provenance—never field values. This PHP check is authoritative for candidate
+inclusion.
+
+`SearchCandidateCollection` deduplicates by persisted document primary key,
+merges unique evidence across terms, fields, and variants, and retains the
+highest-priority matching variant. Different persisted locale or partition
+rows remain distinct. The global limit counts only new document identities;
+later plan queries are skipped once it is full. Candidate retrieval never
+hydrates source models.
+
+The existing basic ranker consumes the bounded collection after retrieval.
+Result sorting, virtual documents, optional batched Eloquent hydration, missing
+models, and `SearchResult` provenance remain unchanged. Results are not bridged
+to localized counterparts. Variant priority is provenance precedence, not a new
+ranking tier.
+
+The existing equality indexes already cover stable partition, type, locale, and
+active-filter prefixes, so no schema index was added. Leading-wildcard
+substring `LIKE` is not generally B-tree accelerated. SQLite integration tests
+execute the complete flow; MySQL and PostgreSQL grammar tests verify quotation,
+bindings, escape syntax, grouping, and limits without claiming service-backed
+integration when those services are unavailable.
 
 ## Results and hydration
 
