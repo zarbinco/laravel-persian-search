@@ -46,7 +46,8 @@ final readonly class SearchSuggestionEvidence implements JsonSerializable
                 && $this->originalBestTier !== null
                 && $this->suggestedResultCount > $this->originalResultCount
                 && $this->resultGain > 0
-                && $this->ratioBasisPoints > 10000,
+                && $this->ratioBasisPoints > 10000
+                && $this->suggestedBestTier->precedence() >= $this->originalBestTier->precedence(),
         };
 
         if (! $reasonIsValid) {

@@ -37,6 +37,14 @@ return [
         // App\Search\ProductSearchDocumentProvider::class,
     ],
 
+    'dependencies' => [
+        'enabled' => true,
+        'maximum_sources_per_event' => 1000,
+        'resolvers' => [
+            // App\Search\ProductCategoryDependencyResolver::class,
+        ],
+    ],
+
     'ranking' => [
         'tier_scores' => [
             'exact_title' => 1400,

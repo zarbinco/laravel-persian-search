@@ -13,8 +13,10 @@ final readonly class SearchSuggestionPolicyFactory
     {
         $values = $this->config->get('persian-search.suggestions', []);
 
-        if (! is_array($values)) {
-            throw new InvalidSearchSuggestionConfigurationException('Invalid suggestion configuration.');
+        if (! is_array($values) || ($values !== [] && array_is_list($values))) {
+            throw new InvalidSearchSuggestionConfigurationException(
+                'persian-search.suggestions must be an associative array.',
+            );
         }
 
         $enabled = $values['enabled'] ?? true;

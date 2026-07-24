@@ -24,6 +24,7 @@ use Zarbinco\PersianSearch\Exceptions\InvalidEloquentSearchSourceLocatorExceptio
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchLifecycleConfigurationException;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
+use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
 use Zarbinco\PersianSearch\Jobs\SynchronizeEloquentSearchSourceJob;
 use Zarbinco\PersianSearch\Lifecycle\DefaultSearchLifecycleDispatcher;
 use Zarbinco\PersianSearch\Lifecycle\EloquentSearchSourceLocator;
@@ -33,6 +34,7 @@ use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicy;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicyFactory;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleSynchronization;
 use Zarbinco\PersianSearch\Lifecycle\SearchQueuePolicy;
+use Zarbinco\PersianSearch\Lifecycle\SearchSourceLocatorFactory;
 use Zarbinco\PersianSearch\Lifecycle\UniqueSearchLifecycleJobDispatcher;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
@@ -487,6 +489,73 @@ final class SearchLifecycleTest extends TestCase
         $this->assertTrue($dispatcher->dispatch(new SynchronizeEloquentSearchSourceJob($differentConnection, $policy)));
         $this->assertTrue($dispatcher->dispatch(new SynchronizeEloquentSearchSourceJob($differentClass, $policy)));
         $this->assertCount(4, $queue->pushed(SynchronizeEloquentSearchSourceJob::class));
+    }
+
+    public function test_provider_aware_queue_identity_routes_distinct_providers_and_suppresses_true_duplicates(): void
+    {
+        $queue = Queue::fake();
+        config()->set('persian-search.index.sync_on_save', false);
+        $product = LifecycleProduct::create(['title' => 'Provider-aware']);
+        $base = $this->synchronization($product);
+        $first = new SearchLifecycleSynchronization(
+            $base->locator,
+            $base->fallbackReference,
+            'provider-a',
+        );
+        $second = new SearchLifecycleSynchronization(
+            $base->locator,
+            $base->fallbackReference,
+            'provider-b',
+        );
+        $policy = app(SearchLifecyclePolicyFactory::class)->queue();
+        $dispatcher = app(UniqueSearchLifecycleJobDispatcher::class);
+        $firstJob = new SynchronizeEloquentSearchSourceJob($first, $policy);
+        $secondJob = new SynchronizeEloquentSearchSourceJob($second, $policy);
+
+        $this->assertNotSame($firstJob->uniqueId(), $secondJob->uniqueId());
+        $this->assertTrue($dispatcher->dispatch($firstJob));
+        $this->assertFalse($dispatcher->dispatch(new SynchronizeEloquentSearchSourceJob($first, $policy)));
+        $this->assertTrue($dispatcher->dispatch($secondJob));
+        $this->assertCount(2, $queue->pushed(SynchronizeEloquentSearchSourceJob::class));
+        $this->assertSame('provider-a', $firstJob->synchronization->providerKey);
+        $this->assertSame('provider-b', $secondJob->synchronization->providerKey);
+        $this->assertFalse($firstJob->afterCommit);
+        $this->assertFalse($secondJob->afterCommit);
+    }
+
+    public function test_current_state_worker_executes_each_captured_provider_for_the_same_source(): void
+    {
+        config()->set('persian-search.index.sync_on_save', false);
+        config()->set('persian-search.providers', [
+            RowRequiredLifecycleProvider::class,
+            AlternateLifecycleProvider::class,
+        ]);
+        foreach ([
+            SearchDocumentProviderRegistry::class,
+            SearchSourceLocatorFactory::class,
+            SearchIndexManager::class,
+            EloquentSearchSourceSynchronizer::class,
+        ] as $service) {
+            app()->forgetInstance($service);
+        }
+
+        $product = LifecycleProduct::create(['title' => 'Two providers']);
+        $locators = app(SearchSourceLocatorFactory::class);
+        $policy = app(SearchLifecyclePolicyFactory::class)->queue();
+        $first = new SynchronizeEloquentSearchSourceJob(
+            $locators->forModel($product, 'row-required-lifecycle')->synchronization(),
+            $policy,
+        );
+        $second = new SynchronizeEloquentSearchSourceJob(
+            $locators->forModel($product, 'alternate-lifecycle')->synchronization(),
+            $policy,
+        );
+
+        $first->handle(app(EloquentSearchSourceSynchronizer::class));
+        $second->handle(app(EloquentSearchSourceSynchronizer::class));
+
+        $this->assertSame(3, SearchDocumentRecord::query()->where('source_type', 'row-required')->count());
+        $this->assertSame(1, SearchDocumentRecord::query()->where('source_type', 'alternate-lifecycle')->count());
     }
 
     public function test_unique_dispatch_failure_releases_lock_for_a_subsequent_dispatch(): void
@@ -1146,6 +1215,58 @@ final class RowRequiredLifecycleProvider implements SearchDocumentProvider
             normalizedExcerpt: null,
             normalizedKeywords: null,
             normalizedContent: $title.' admin',
+        );
+    }
+}
+
+final class AlternateLifecycleProvider implements SearchDocumentProvider
+{
+    public function key(): string
+    {
+        return 'alternate-lifecycle';
+    }
+
+    public function supports(mixed $source): bool
+    {
+        return $source instanceof LifecycleProduct;
+    }
+
+    public function reference(mixed $source): SearchSourceReference
+    {
+        if (! $source instanceof LifecycleProduct) {
+            throw new RuntimeException('Unexpected alternate lifecycle source.');
+        }
+
+        return new SearchSourceReference(
+            'alternate:'.$source->getKey(),
+            'alternate-lifecycle',
+            $source->getKey(),
+        );
+    }
+
+    public function documents(mixed $source): iterable
+    {
+        if (! $source instanceof LifecycleProduct) {
+            throw new RuntimeException('Unexpected alternate lifecycle source.');
+        }
+
+        $title = $source->getAttribute('title');
+        if (! is_string($title)) {
+            throw new RuntimeException('Alternate lifecycle title must be a string.');
+        }
+
+        yield new SearchDocument(
+            partition: 'public',
+            sourceKey: 'alternate:'.$source->getKey(),
+            sourceType: 'alternate-lifecycle',
+            sourceId: $source->getKey(),
+            locale: 'en',
+            title: $title,
+            excerpt: null,
+            normalizedTitle: $title,
+            normalizedExcerpt: null,
+            normalizedKeywords: null,
+            normalizedContent: $title,
         );
     }
 }

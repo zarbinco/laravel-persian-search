@@ -228,6 +228,20 @@ locale-bridge factory rejects a malformed non-map section. Immutable bridge
 metadata, presented candidates, public results, and suggestion evidence enforce
 status- and reason-specific semantic invariants at construction time.
 
+Presented candidates require both matched and displayed
+`SearchDocumentRecord` instances to have a primary key and Eloquent
+`exists === true`; public results apply the same persistence requirement to the
+displayed record without issuing an existence query. The matched record locale,
+winning rank-variant locale, and bridge matched locale must be exactly equal.
+Virtual documents still satisfy this boundary because their search-index row is
+persisted even though no source model is hydrated.
+
+Reason validation mirrors evaluator order. A strictly better corrected tier can
+only carry `better_semantic_tier`; `material_result_gain` permits equal or
+weaker corrected tiers when its generic positive count and integer-ratio
+conditions hold. The suggestions configuration factory accepts empty or
+partial associative maps but rejects scalar and list-shaped sections.
+
 `SearchResultWindow::knownTotal` is always the number of available rankable
 candidates. It is exact only when per-variant capacity was not exceeded, global
 candidate capacity was not reached, and no later variant was skipped.
@@ -420,12 +434,72 @@ after-commit failures propagate from commit, queue-push failures surface after
 releasing the unique lock, and workers retain Laravel's retry and failed-job
 semantics.
 
+### Dependency reindexing pipeline
+
+Configured `SearchDependencyResolver` implementations are registered once per
+exact dependency model class. They run for dependency models independently of
+the searchable-source trait. The observer builds detached raw-attribute
+snapshots, clearing relations while preserving the concrete class, table,
+primary-key behavior, existence, and resolved connection. Update snapshots use
+`getRawOriginal()` before persistence and current raw attributes afterward.
+Delete discovery occurs during `deleting`; create and restore discovery occurs
+only after persistence.
+
+Resolver results are materialized as provider-aware source locators, not
+documents. A collection consumes lazy iterables, validates every yielded value,
+deduplicates by stable locator fingerprint, enforces the configured fanout
+ceiling, and sorts deterministically. Update before/after collections are
+unioned under the same ceiling. Because every resolver and target is validated
+before dispatch begins, exceptions cannot produce a partially routed event.
+Per-model prepared update/delete state lives in an instance-scoped `WeakMap`;
+there is no static request state.
+
+Routing identity is the provider key plus the exact Eloquent locator. This same
+fingerprint is authoritative for dependency deduplication and queue uniqueness,
+so different providers for one source cannot suppress each other. Complete
+synchronization identity additionally includes the fallback source reference.
+If equal routing identities carry different complete identities, target
+collection throws before dispatch; resolver order never chooses deletion
+identity.
+
+Registry initialization reads each resolver key and dependency-model class
+twice to reject unstable metadata, validates the concrete exact model class,
+then stores an immutable registration sorted by model, key, and resolver class.
+Later observer registration and event filtering use only cached metadata.
+Resolver execution copies the detached snapshot per registration, preserving
+connection, table, raw attributes, runtime key name/type/incrementing behavior,
+and existence while starting with no relations.
+
+The dependency dispatcher schedules against the dependency connection. Its
+after-commit callback captures only immutable synchronizations and resolves the
+shared router when invoked. The router decides only synchronous versus unique
+queued execution; it does not inspect transactions. Ordinary source lifecycle
+and dependency lifecycle therefore share queue uniqueness and current-state
+convergence while retaining their distinct transaction boundary.
+
+Dependency configuration is parsed once into the policy used by both registrar
+and registry. Boot always resolves this policy, so malformed top-level shapes
+cannot evade validation. Disabled policies and empty resolver lists return
+before application resolver construction or observer registration.
+An empty dependency section means defaults. Resolver classes must remain a
+sequential list in the policy; associative or sparse arrays are invalid even
+under direct construction. Registration sorting compares model, key, and class
+with binary `strcmp()` at each level, avoiding locale, natural-order, and
+numeric-string coercion.
+
+Queue integration tests traverse actual dependency model events through the
+dependency connection's outer commit, shared routing, real provider-aware
+unique locks, queue payloads, and current-state source synchronization. Separate
+source, index, and unrelated connections verify that only the dependency
+connection owns the scheduling boundary, including when the queue connection
+itself enables after-commit dispatch.
+
 The source commit, callback execution, queue broker, and search-index
 transaction do not form one distributed transaction. In particular, this
 design does not provide an outbox, exactly-once delivery, automatic recovery
-from post-commit dispatch failure, provider-wide orphan cleanup, dependency
-propagation, or cross-service atomicity. A surfaced post-commit failure may
-require explicit reindexing.
+from post-commit dispatch failure, provider-wide orphan cleanup, recursive
+dependency chaining, or cross-service atomicity. A surfaced post-commit failure
+may require explicit reindexing.
 
 Custom Eloquent providers remain authoritative for both indexing and deletion.
 Their event-time reference provides deletion identity when the source no longer

@@ -26,7 +26,9 @@ final readonly class SearchResult implements JsonSerializable
         public SearchRank $rank,
         public SearchLocaleBridgeMetadata $bridge,
     ) {
-        if ($this->record->locale !== $this->bridge->presentedLocale
+        if (! $this->record->exists
+            || $this->record->getKey() === null
+            || $this->record->locale !== $this->bridge->presentedLocale
             || $this->rank->variant->locale !== $this->bridge->matchedLocale
             || ($this->bridge->status === SearchLocaleBridgeStatus::Bridged
                 && $this->record->is_active !== true)) {

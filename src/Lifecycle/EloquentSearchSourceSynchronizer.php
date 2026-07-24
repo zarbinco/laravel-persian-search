@@ -49,6 +49,6 @@ final readonly class EloquentSearchSourceSynchronizer
             return null;
         }
 
-        return $this->index->indexSource($model);
+        return $this->index->indexSourceWithProvider($synchronization->providerKey, $model);
     }
 }

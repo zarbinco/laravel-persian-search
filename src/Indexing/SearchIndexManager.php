@@ -31,6 +31,11 @@ final readonly class SearchIndexManager
         return $this->replaceDocumentSet($this->documentsFor($source));
     }
 
+    public function indexSourceWithProvider(string $providerKey, mixed $source): SearchSourceIndexResult
+    {
+        return $this->replaceDocumentSet($this->providers->documentsForProvider($providerKey, $source));
+    }
+
     public function replaceDocumentSet(SearchDocumentSet $set): SearchSourceIndexResult
     {
         $record = new SearchDocumentRecord;

@@ -49,7 +49,7 @@ final class SynchronizeEloquentSearchSourceJob implements ShouldBeUniqueUntilPro
 
     public function uniqueId(): string
     {
-        return hash('sha256', $this->synchronization->locator->fingerprint());
+        return $this->synchronization->routingFingerprint();
     }
 
     /** @return list<int> */

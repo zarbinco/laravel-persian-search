@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Enforce sequential dependency resolver policy lists, accept empty dependency sections as defaults, order cached registrations with binary comparisons, harden resolver diagnostics, and cover the complete dependency-to-queue path.
+- Make lifecycle queue uniqueness provider-aware, isolate every dependency resolver snapshot, cache stable resolver metadata, reject conflicting fallback references, and validate dependency policy consistently during boot.
+- Add dependency-aware source reindexing with detached before/after snapshots, foreign-key movement unions, bounded deterministic fanout, exact dependency-connection commit scheduling, and shared current-state sync/unique-queue routing.
+- Require presented-result DTOs to carry persisted search-index records and enforce exact matched-document/rank/bridge locale agreement.
+- Make material-result suggestion evidence exclusive of strictly better-tier evidence and reject list-shaped suggestions configuration.
 - Verify locale-counterpart rows with exact PHP locale/partition/source-key comparisons after bound SQL lookup, independent of database collation.
 - Reject duplicate exact counterparts, redact raw source keys from conflict diagnostics, and centralize collision-safe pair identities.
 - Enforce policy-constructor bounds plus bridge configuration shape, reason-specific suggestion evidence, presented status semantics, and result/bridge locale consistency.

@@ -279,12 +279,106 @@ exact source-connection boundary is satisfied, the queue job is pushed with
 `beforeCommit()`. A queue connection's global `after_commit` option therefore
 cannot re-delay or discard the job because of an unrelated database transaction.
 
+### Dependency-aware reindexing
+
+Models whose data contributes to another searchable source can trigger bounded
+source reindexing without using `HasPersianSearch` themselves. Register resolver
+classes and return source locators through the provider-aware locator factory:
+
+```php
+use App\Models\Category;
+use App\Models\Product;
+use Zarbinco\PersianSearch\Contracts\SearchDependencyResolver;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyContext;
+use Zarbinco\PersianSearch\Lifecycle\SearchSourceLocatorFactory;
+
+final class ProductCategoryDependencyResolver implements SearchDependencyResolver
+{
+    public function __construct(private SearchSourceLocatorFactory $locators) {}
+
+    public function key(): string { return 'product-category'; }
+
+    public function dependencyModel(): string { return Category::class; }
+
+    public function resolve(SearchDependencyContext $context): iterable
+    {
+        foreach (Product::query()
+            ->where('category_id', $context->dependency->getKey())
+            ->orderBy('id')
+            ->cursor() as $product) {
+            yield $this->locators->forModel($product, 'eloquent');
+        }
+    }
+}
+```
+
+```php
+'dependencies' => [
+    'enabled' => true,
+    'maximum_sources_per_event' => 1000, // hard maximum: 20,000
+    'resolvers' => [
+        App\Search\ProductCategoryDependencyResolver::class,
+    ],
+],
+```
+
+Resolvers receive a detached, relation-free dependency snapshot with an exact
+connection, typed operation/state, and sorted changed attributes for updates.
+Each configured resolver receives its own fresh snapshot copy, including the
+runtime table, key name, key type, incrementing mode, and raw key value. A
+resolver may mutate its private copy without changing the live event model,
+stored before/after snapshots, or the context observed by another resolver.
+Resolver keys and dependency-model classes are stability-checked during
+registration and then cached as immutable metadata; extension metadata methods
+are not consulted again during event routing.
+Creates and restores resolve after-state targets, deletes resolve before the row
+is removed, and updates union before/after targets so foreign-key movement
+reindexes both old and new owners. All matching resolvers complete before work
+is dispatched; targets are deduplicated, deterministically ordered, and the
+event fails without partial dispatch when its fanout limit is exceeded.
+Soft deletes and force deletes each route once after a successful `deleted`
+event; canceled or failed deletion routes nothing, and restore routes once from
+the restored after-state.
+
+Dependency transaction timing follows `lifecycle.after_commit`, but uses the
+dependency model's exact connection. After that boundary, every immutable
+source locator follows the same `sync` or unique `queue` router as ordinary
+source lifecycle work. Execution reloads each source's current committed state,
+so missing or excluded sources remove their captured document set and surviving
+sources use atomic replacement. Resolver queries should be indexed and lazy;
+choose a deliberately bounded maximum appropriate for the application's worst
+legitimate fanout.
+
+Queue uniqueness is keyed by the provider key plus the exact Eloquent source
+locator. The same source/provider is suppressed while two providers for the
+same source remain independent jobs. The event-time fallback reference is not
+part of queue uniqueness. During target collection, however, two targets with
+the same routing identity and different fallback references are rejected before
+any work is scheduled rather than selecting one by resolver order.
+
+The entire `dependencies` block is validated into one immutable policy snapshot
+during package boot. Disabled dependencies and empty resolver lists register no
+observers and do not instantiate application resolver classes; malformed
+sections still fail validation instead of being skipped by dot-notation lookup.
+Setting `'dependencies' => []` uses all documented defaults. The `resolvers`
+value must be a proper sequential list—associative, sparse, and positional
+top-level configurations are rejected. Valid configured resolver order is
+preserved in policy diagnostics, while runtime registrations use explicit
+locale-independent binary ordering by dependency model, resolver key, and
+resolver class (`"10"` sorts before `"2"`).
+
+The integration suite exercises queued dependency work through the complete
+observer, exact dependency-connection commit callback, shared router,
+provider-aware unique lock, queue payload, and current-state worker path. This
+includes queue backends configured with `after_commit = true`; jobs remain
+explicitly `beforeCommit()` after the package-owned dependency boundary.
+
 This provides at-least-once-safe convergence, not exactly-once delivery. There
 is no transactional outbox or atomic boundary between the committed source
 transaction and a later queue-broker dispatch. A callback or broker failure
 after source commit can therefore require explicit reindexing. The lifecycle
-also does not provide provider-wide orphan cleanup, dependency propagation,
-cross-service transactions, or custom distributed locks.
+also does not provide provider-wide orphan cleanup, recursive dependency
+chaining, cross-service transactions, or custom distributed locks.
 
 When `index.include_soft_deleted` is enabled, soft-deleted models keep their
 documents, are included by model reindexing, and may be hydrated in search
@@ -391,6 +485,14 @@ Malformed bridge configuration sections and out-of-range policy construction
 are rejected. Public bridge, presented-candidate, result, and suggestion
 evidence objects also reject status or reason combinations that cannot be
 produced by a valid search execution.
+
+Presented-result objects require actual persisted search-index records: an
+assigned primary key alone is insufficient when Eloquent reports
+`exists === false`. The matched document locale, winning variant locale, and
+bridge matched locale must agree with exact binary equality. Suggestion reasons
+also follow evaluator precedence—a strictly better tier uses
+`better_semantic_tier`, not `material_result_gain`. Both bridge and suggestion
+configuration sections must be associative maps; positional lists are rejected.
 
 ```php
 'locale_bridge' => [

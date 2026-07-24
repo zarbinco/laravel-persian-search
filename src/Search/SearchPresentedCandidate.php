@@ -17,12 +17,15 @@ final readonly class SearchPresentedCandidate
         $matchedId = (string) $matched->getKey();
         $presentedId = (string) $this->presentedDocument->getKey();
 
-        if ($matched->getKey() === null
+        if (! $matched->exists
+            || $matched->getKey() === null
+            || ! $this->presentedDocument->exists
             || $this->presentedDocument->getKey() === null
             || $matched->source_key !== $this->presentedDocument->source_key
             || $matched->source_type !== $this->presentedDocument->source_type
             || $matched->source_id !== $this->presentedDocument->source_id
             || $matched->partition !== $this->presentedDocument->partition
+            || $matched->locale !== $this->bridge->matchedLocale
             || $this->presentedDocument->locale !== $this->bridge->presentedLocale
             || $this->matchedCandidate->rank->variant->locale !== $this->bridge->matchedLocale) {
             throw new InvalidArgumentException('Presented search candidate identity or bridge metadata is inconsistent.');

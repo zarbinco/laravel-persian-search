@@ -284,6 +284,7 @@ final class SearchIntegrityInvariantTest extends TestCase
             'priority' => 0,
             'is_active' => $active,
         ], true);
+        $record->exists = true;
 
         return $record;
     }

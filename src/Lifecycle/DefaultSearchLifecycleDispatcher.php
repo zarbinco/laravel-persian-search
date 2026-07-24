@@ -5,18 +5,14 @@ namespace Zarbinco\PersianSearch\Lifecycle;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Eloquent\Model;
 use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
-use Zarbinco\PersianSearch\Jobs\SynchronizeEloquentSearchSourceJob;
-use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
 
 final readonly class DefaultSearchLifecycleDispatcher implements SearchLifecycleDispatcher
 {
     public function __construct(
         private SearchLifecyclePolicy $policy,
-        private SearchQueuePolicy $queuePolicy,
-        private SearchDocumentProviderRegistry $providers,
-        private EloquentSearchSourceSynchronizer $synchronizer,
-        private UniqueSearchLifecycleJobDispatcher $jobs,
+        private SearchSourceLocatorFactory $locators,
         private DatabaseManager $database,
+        private SearchLifecycleSynchronizationRouter $router,
     ) {}
 
     public function prepareForModel(Model $model): ?SearchLifecycleSynchronization
@@ -25,10 +21,7 @@ final readonly class DefaultSearchLifecycleDispatcher implements SearchLifecycle
             return null;
         }
 
-        return new SearchLifecycleSynchronization(
-            EloquentSearchSourceLocator::fromModel($model),
-            $this->providers->referenceFor($model),
-        );
+        return $this->locators->forSource($model)->synchronization();
     }
 
     public function dispatchForModel(Model $model): void
@@ -57,12 +50,6 @@ final readonly class DefaultSearchLifecycleDispatcher implements SearchLifecycle
 
     public function execute(SearchLifecycleSynchronization $synchronization): void
     {
-        if ($this->policy->execution === SearchLifecycleExecutionMode::Sync) {
-            $this->synchronizer->synchronize($synchronization);
-
-            return;
-        }
-
-        $this->jobs->dispatch(new SynchronizeEloquentSearchSourceJob($synchronization, $this->queuePolicy));
+        $this->router->route($synchronization);
     }
 }

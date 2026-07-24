@@ -99,6 +99,21 @@ final class SearchDocumentProviderRegistry
         return SearchDocumentSet::fromIterable($reference, $provider->documents($source), $this->keyFor($provider));
     }
 
+    public function documentsForProvider(string $key, mixed $source): SearchDocumentSet
+    {
+        $provider = $this->provider($key);
+
+        if (! $provider->supports($source)) {
+            throw SearchDocumentProviderNotFoundException::forSource($source);
+        }
+
+        return SearchDocumentSet::fromIterable(
+            $provider->reference($source),
+            $provider->documents($source),
+            $this->keyFor($provider),
+        );
+    }
+
     private function initialize(): void
     {
         if ($this->providers !== null) {
@@ -149,7 +164,7 @@ final class SearchDocumentProviderRegistry
         $this->providerKeys = $providerKeys;
     }
 
-    private function keyFor(SearchDocumentProvider $provider): string
+    public function keyFor(SearchDocumentProvider $provider): string
     {
         $providerKeys = $this->keys();
 

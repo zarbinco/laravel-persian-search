@@ -17,6 +17,7 @@ use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
+use Zarbinco\PersianSearch\Contracts\SearchDependencyPendingState;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SearchLifecycleDispatcher;
@@ -25,6 +26,15 @@ use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyDispatcher;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyObserver;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyObserverRegistrar;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyPolicy;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyPolicyFactory;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyResolverRegistry;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencySnapshotFactory;
+use Zarbinco\PersianSearch\Dependencies\SearchDependencyTargetResolver;
+use Zarbinco\PersianSearch\Dependencies\WeakMapSearchDependencyPendingState;
 use Zarbinco\PersianSearch\Drivers\DatabaseCandidateDriver;
 use Zarbinco\PersianSearch\Drivers\DatabaseSearchDriver;
 use Zarbinco\PersianSearch\Exceptions\InvalidQueryVariantConfigurationException;
@@ -39,7 +49,9 @@ use Zarbinco\PersianSearch\Lifecycle\DefaultSearchLifecycleDispatcher;
 use Zarbinco\PersianSearch\Lifecycle\EloquentSearchSourceSynchronizer;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicy;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicyFactory;
+use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleSynchronizationRouter;
 use Zarbinco\PersianSearch\Lifecycle\SearchQueuePolicy;
+use Zarbinco\PersianSearch\Lifecycle\SearchSourceLocatorFactory;
 use Zarbinco\PersianSearch\Lifecycle\UniqueSearchLifecycleJobDispatcher;
 use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
 use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
@@ -291,8 +303,27 @@ final class PersianSearchServiceProvider extends ServiceProvider
             return new UniqueLock($app->make(CacheRepository::class));
         });
         $this->app->singleton(UniqueSearchLifecycleJobDispatcher::class, UniqueSearchLifecycleJobDispatcher::class);
+        $this->app->bind(SearchLifecycleSynchronizationRouter::class, SearchLifecycleSynchronizationRouter::class);
         $this->app->singleton(DefaultSearchLifecycleDispatcher::class, DefaultSearchLifecycleDispatcher::class);
         $this->app->alias(DefaultSearchLifecycleDispatcher::class, SearchLifecycleDispatcher::class);
+        $this->app->singleton(SearchSourceLocatorFactory::class, SearchSourceLocatorFactory::class);
+
+        $this->app->singleton(SearchDependencyPolicyFactory::class, SearchDependencyPolicyFactory::class);
+        $this->app->singleton(SearchDependencyPolicy::class, function ($app): SearchDependencyPolicy {
+            return $app->make(SearchDependencyPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchDependencyResolverRegistry::class, function ($app): SearchDependencyResolverRegistry {
+            return new SearchDependencyResolverRegistry(
+                $app,
+                $app->make(SearchDependencyPolicy::class),
+            );
+        });
+        $this->app->singleton(SearchDependencySnapshotFactory::class, SearchDependencySnapshotFactory::class);
+        $this->app->singleton(SearchDependencyTargetResolver::class, SearchDependencyTargetResolver::class);
+        $this->app->singleton(SearchDependencyPendingState::class, WeakMapSearchDependencyPendingState::class);
+        $this->app->singleton(SearchDependencyDispatcher::class, SearchDependencyDispatcher::class);
+        $this->app->singleton(SearchDependencyObserver::class, SearchDependencyObserver::class);
+        $this->app->singleton(SearchDependencyObserverRegistrar::class, SearchDependencyObserverRegistrar::class);
 
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(
@@ -313,6 +344,8 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->app->make(SearchDependencyObserverRegistrar::class)->register();
+
         if (! $this->app->runningInConsole()) {
             return;
         }
