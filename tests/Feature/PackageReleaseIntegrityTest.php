@@ -24,6 +24,20 @@ final class PackageReleaseIntegrityTest extends TestCase
         $this->assertCount(9, $matrix);
         $this->assertSame(['contents' => 'read'], $parsedTests['permissions'] ?? null);
         $this->assertSame(['contents' => 'read'], $parsedQuality['permissions'] ?? null);
+        $this->assertWorkflowManifestLifecycle(
+            $parsedTests,
+            'tests',
+            'Select Laravel and Testbench pair',
+            'Install dependencies',
+            'Run PHPUnit',
+        );
+        $this->assertWorkflowManifestLifecycle(
+            $parsedQuality,
+            'quality',
+            'Select Laravel 13 and Testbench 11',
+            'Install highest dependencies',
+            'Run PHPUnit',
+        );
 
         $lowest = ['12' => false, '13' => false];
         foreach ($matrix as $job) {
@@ -64,9 +78,11 @@ final class PackageReleaseIntegrityTest extends TestCase
 
     public function test_composer_lock_is_absent_and_ignored(): void
     {
-        $this->assertFileDoesNotExist($this->root('composer.lock'));
         $this->assertStringContainsString('composer.lock', $this->contents('.gitignore'));
         $this->assertFileDoesNotExist($this->root('DELETED_FILES.txt'));
+
+        $composer = json_decode($this->contents('composer.json'), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('library', $composer['type']);
     }
 
     public function test_repository_contains_no_internal_delivery_artifacts(): void
@@ -245,6 +261,43 @@ final class PackageReleaseIntegrityTest extends TestCase
         }
 
         return $contents;
+    }
+
+    /** @param array<string, mixed> $workflow */
+    private function assertWorkflowManifestLifecycle(
+        array $workflow,
+        string $job,
+        string $configureStep,
+        string $installStep,
+        string $testStep,
+    ): void {
+        $steps = $workflow['jobs'][$job]['steps'] ?? null;
+        $this->assertIsArray($steps);
+        $names = array_column($steps, 'name');
+        $verify = array_search('Verify lockless package repository', $names, true);
+        $configure = array_search($configureStep, $names, true);
+        $install = array_search($installStep, $names, true);
+        $restore = array_search('Restore package manifest', $names, true);
+        $test = array_search($testStep, $names, true);
+
+        $this->assertIsInt($verify);
+        $this->assertIsInt($configure);
+        $this->assertIsInt($install);
+        $this->assertIsInt($restore);
+        $this->assertIsInt($test);
+        $this->assertLessThan($configure, $verify);
+        $this->assertLessThan($install, $configure);
+        $this->assertLessThan($restore, $install);
+        $this->assertLessThan($test, $restore);
+
+        $verifyScript = $steps[$verify]['run'] ?? null;
+        $restoreScript = $steps[$restore]['run'] ?? null;
+        $this->assertIsString($verifyScript);
+        $this->assertIsString($restoreScript);
+        $this->assertStringContainsString('test ! -f composer.lock', $verifyScript);
+        $this->assertStringContainsString('git ls-files --error-unmatch composer.lock', $verifyScript);
+        $this->assertStringContainsString('git checkout -- composer.json', $restoreScript);
+        $this->assertStringContainsString('rm -f composer.lock', $restoreScript);
     }
 
     private function root(string $path): string

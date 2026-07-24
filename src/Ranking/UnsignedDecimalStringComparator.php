@@ -7,7 +7,7 @@ final class UnsignedDecimalStringComparator
     public static function compare(string $left, string $right): int
     {
         if (! ctype_digit($left) || ! ctype_digit($right)) {
-            return strcmp($left, $right);
+            return self::sign(strcmp($left, $right));
         }
 
         $normalizedLeft = self::normalize($left);
@@ -18,9 +18,9 @@ final class UnsignedDecimalStringComparator
             return $length;
         }
 
-        $numeric = strcmp($normalizedLeft, $normalizedRight);
+        $numeric = self::sign(strcmp($normalizedLeft, $normalizedRight));
 
-        return $numeric !== 0 ? $numeric : strcmp($left, $right);
+        return $numeric !== 0 ? $numeric : self::sign(strcmp($left, $right));
     }
 
     private static function normalize(string $value): string
@@ -28,5 +28,10 @@ final class UnsignedDecimalStringComparator
         $normalized = ltrim($value, '0');
 
         return $normalized === '' ? '0' : $normalized;
+    }
+
+    private static function sign(int $comparison): int
+    {
+        return $comparison <=> 0;
     }
 }

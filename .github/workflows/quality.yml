@@ -22,6 +22,15 @@ jobs:
           php-version: '8.3'
           coverage: none
 
+      - name: Verify lockless package repository
+        run: |
+          test ! -f composer.lock
+
+          if git ls-files --error-unmatch composer.lock >/dev/null 2>&1; then
+            echo "composer.lock must not be tracked for this library."
+            exit 1
+          fi
+
       - name: Select Laravel 13 and Testbench 11
         run: |
           composer require --no-update \
@@ -38,6 +47,11 @@ jobs:
         uses: ramsey/composer-install@v3
         with:
           dependency-versions: highest
+
+      - name: Restore package manifest
+        run: |
+          git checkout -- composer.json
+          rm -f composer.lock
 
       - name: Validate Composer metadata
         run: composer validate --strict

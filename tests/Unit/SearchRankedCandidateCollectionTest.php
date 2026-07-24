@@ -24,8 +24,13 @@ final class SearchRankedCandidateCollectionTest extends TestCase
         string $right,
         int $expected,
     ): void {
-        $this->assertSame($expected, UnsignedDecimalStringComparator::compare($left, $right));
-        $this->assertSame(-$expected, UnsignedDecimalStringComparator::compare($right, $left));
+        $comparison = UnsignedDecimalStringComparator::compare($left, $right);
+        $reverse = UnsignedDecimalStringComparator::compare($right, $left);
+
+        $this->assertContains($comparison, [-1, 0, 1]);
+        $this->assertContains($reverse, [-1, 0, 1]);
+        $this->assertSame($expected, $comparison);
+        $this->assertSame(-$comparison, $reverse);
     }
 
     /** @return array<string, array{string, string, -1|0|1}> */
@@ -37,9 +42,17 @@ final class SearchRankedCandidateCollectionTest extends TestCase
             'above PHP integer maximum' => ['9223372036854775808', '18446744073709551615', -1],
             'very long greater value' => ['99999999999999999999', '10000000000000000000', 1],
             'leading-zero textual tie-break' => ['0002', '2', -1],
+            'reverse leading-zero textual tie-break' => ['2', '0002', 1],
+            'zero leading-zero textual tie-break' => ['0', '000', -1],
             'exact equality' => ['18446744073709551615', '18446744073709551615', 0],
+            'short decimal before longer decimal' => ['2', '10', -1],
+            'longer decimal after short decimal' => ['10', '2', 1],
             'non-digit binary comparison' => ['id:10', 'id:2', -1],
             'digit versus non-digit binary comparison' => ['10', 'id:2', -1],
+            'non-digit versus digit binary comparison' => ['id:2', '10', 1],
+            'ASCII case comparison' => ['A', 'a', -1],
+            'punctuation comparison' => ['id-2', 'id:2', -1],
+            'equal non-digit values' => ['id:2', 'id:2', 0],
         ];
     }
 

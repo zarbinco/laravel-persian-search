@@ -71,6 +71,15 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
 
+      - name: Verify lockless package repository
+        run: |
+          test ! -f composer.lock
+
+          if git ls-files --error-unmatch composer.lock >/dev/null 2>&1; then
+            echo "composer.lock must not be tracked for this library."
+            exit 1
+          fi
+
       - name: Select Laravel and Testbench pair
         run: |
           composer require --no-update \
@@ -88,6 +97,11 @@ jobs:
         uses: ramsey/composer-install@v3
         with:
           dependency-versions: ${{ matrix.dependencies }}
+
+      - name: Restore package manifest
+        run: |
+          git checkout -- composer.json
+          rm -f composer.lock
 
       - name: Run PHPUnit
         run: composer test
