@@ -4,7 +4,9 @@ namespace Zarbinco\PersianSearch\Operations;
 
 use Illuminate\Database\Eloquent\Builder;
 use RuntimeException;
+use Throwable;
 use Zarbinco\PersianSearch\Exceptions\InvalidSearchSourceEnumeratorException;
+use Zarbinco\PersianSearch\Exceptions\SearchOperationExecutionException;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Providers\SearchSourceReference;
 
@@ -48,7 +50,29 @@ final readonly class SearchPruneOperation
 
             if ($request->execute) {
                 foreach ($orphans as $orphan) {
-                    $deletedDocuments += $this->deleteReference($orphan);
+                    try {
+                        $deletedDocuments += $this->deleteReference($orphan);
+                    } catch (Throwable $exception) {
+                        throw new SearchOperationExecutionException(
+                            new SearchPruneReport(
+                                true,
+                                count($providers),
+                                count($selected),
+                                count($current),
+                                count($persisted),
+                                $currentDocuments,
+                                count($orphans),
+                                $orphanDocuments,
+                                $deletedReferences,
+                                $deletedDocuments,
+                                1,
+                                count($orphans) - $deletedReferences - 1,
+                            ),
+                            'orphan_deletion',
+                            'Search prune execution failed safely.',
+                            $exception,
+                        );
+                    }
                     $deletedReferences++;
                 }
             }
@@ -64,6 +88,8 @@ final readonly class SearchPruneOperation
                 $orphanDocuments,
                 $deletedReferences,
                 $deletedDocuments,
+                0,
+                0,
             );
         } finally {
             $lock?->release();

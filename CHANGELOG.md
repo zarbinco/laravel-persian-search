@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Remove Laravel 11 and earlier support; require Laravel 12 on PHP 8.2+ from
+  Illuminate 12.61.1 or Laravel 13 on PHP 8.3+ from Illuminate 13.12.0; pair
+  Testbench 10/11 explicitly in lockless highest/lowest-secure CI; and keep the
+  library lock file absent.
+- Add immutable partial-failure reports for reindex routing and prune deletion,
+  including completed, failed, and unprocessed counts in safe human and JSON
+  command output.
+- Correct public feature, command, compatibility, and package-boundary
+  documentation.
 - Make prune limits fail closed, track authoritative ownership per partition,
   report maintenance locks truthfully across supported Laravel versions, use
   collision-free doctor probes, validate queue readiness without dispatch, keep
@@ -69,14 +78,14 @@
 - Isolated fallback searchable-relation declarations from custom-provider model rebuilds.
 - Made custom fresh deletion use the exact source reference from the validated document set without resolving it again.
 - Enforced canonical, stable provider keys and added key-specific registry lookup errors.
-- Made model `--fresh` rebuilds validate, clean, and reindex each current custom-provider source while preserving global fallback cleanup.
+- Made enumerator-driven rebuilds validate, clean, and reindex each current custom-provider source while preserving global fallback cleanup.
 - Added accurate custom-source deletion accounting and a warning for custom-provider sources that cannot be enumerated from the model query.
 - Added container-resolved search document providers for custom Eloquent and non-Eloquent sources.
 - Added immutable source references and validated, ordered multi-document sets across locales and partitions.
 - Routed source indexing, source deletion, and model lifecycle synchronization through deterministic provider resolution.
 - Added the built-in Eloquent fallback provider with explicit `loadMissing()` relation declarations and chunked reindex eager loading.
 - Added `documentsFor()`, `indexSource()`, `deleteSource()`, and `providerFor()` source APIs.
-- Made model reindexing report source and document counts separately when providers yield multiple documents.
+- Made source synchronization report source and document counts separately when providers yield multiple documents.
 - Made English-to-Persian correction faithful to Windows Persian base and Shift key states.
 - Made synonym expansion lazy so the configured variant limit also bounds generated work.
 - Deduplicated synonym token candidates before normalization and semantic query-locale outputs before yielding.

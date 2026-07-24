@@ -5,10 +5,12 @@ namespace Zarbinco\PersianSearch\Console;
 use Illuminate\Console\Command;
 use Throwable;
 use Zarbinco\PersianSearch\Exceptions\SearchMaintenanceLockUnavailableException;
+use Zarbinco\PersianSearch\Exceptions\SearchOperationExecutionException;
 use Zarbinco\PersianSearch\Operations\SearchOperationExitCode;
 use Zarbinco\PersianSearch\Operations\SearchOperationFailureFormatter;
 use Zarbinco\PersianSearch\Operations\SearchOperationOutput;
 use Zarbinco\PersianSearch\Operations\SearchPruneOperation;
+use Zarbinco\PersianSearch\Operations\SearchPruneReport;
 use Zarbinco\PersianSearch\Operations\SearchPruneRequest;
 
 final class PruneCommand extends Command
@@ -47,27 +49,62 @@ final class PruneCommand extends Command
                 $limit,
                 $execute,
             ));
-            if ($json) {
-                $this->line(SearchOperationOutput::json($report));
-            } else {
-                $this->components->info($execute ? 'Prune execution completed.' : 'Prune dry-run completed; nothing was deleted.');
-                $this->table(['Metric', 'Count'], [
-                    ['Current references', $report->currentSourceReferences],
-                    ['Persisted references', $report->persistedSourceReferences],
-                    ['Current documents', $report->currentDocuments],
-                    ['Orphan references', $report->orphanedSourceReferences],
-                    ['Orphan documents', $report->orphanedDocuments],
-                    ['Deleted references', $report->deletedSourceReferences],
-                    ['Deleted documents', $report->deletedDocuments],
-                ]);
-            }
+            $this->report(
+                $report,
+                $json,
+                $execute ? 'Prune execution completed.' : 'Prune dry-run completed; nothing was deleted.',
+            );
 
             return SearchOperationExitCode::Success->value;
         } catch (SearchMaintenanceLockUnavailableException $exception) {
             return $this->failure($exception->getMessage(), $json, SearchOperationExitCode::LockUnavailable);
+        } catch (SearchOperationExecutionException $exception) {
+            if (! $exception->partialReport instanceof SearchPruneReport) {
+                return $this->failure('Search prune execution failed safely.', $json);
+            }
+            $this->report(
+                $exception->partialReport,
+                $json,
+                'Search prune execution stopped safely.',
+                $exception->getMessage(),
+            );
+
+            return SearchOperationExitCode::Failed->value;
         } catch (Throwable $exception) {
             return $this->failure(app(SearchOperationFailureFormatter::class)->format($exception, 'prune'), $json);
         }
+    }
+
+    private function report(
+        SearchPruneReport $report,
+        bool $json,
+        string $headline,
+        ?string $failure = null,
+    ): void {
+        if ($json) {
+            $this->line(SearchOperationOutput::json(
+                $failure === null
+                    ? $report
+                    : SearchOperationOutput::executionFailure($report, $failure),
+            ));
+
+            return;
+        }
+        $failure === null
+            ? $this->components->info($headline)
+            : $this->components->error($failure);
+        $this->table(['Metric', 'Count'], [
+            ['Status', $report->status()],
+            ['Current references', $report->currentSourceReferences],
+            ['Persisted references', $report->persistedSourceReferences],
+            ['Current documents', $report->currentDocuments],
+            ['Orphan references', $report->orphanedSourceReferences],
+            ['Orphan documents', $report->orphanedDocuments],
+            ['Deleted references', $report->deletedSourceReferences],
+            ['Deleted documents', $report->deletedDocuments],
+            ['Failed references', $report->failedSourceReferences],
+            ['Unprocessed references', $report->unprocessedSourceReferences],
+        ]);
     }
 
     /** @return list<string> */

@@ -2,6 +2,12 @@
 
 Thank you for helping improve Laravel Persian Search.
 
+Laravel 12 requires PHP 8.2 or later and Illuminate 12.61.1 or later within
+Laravel 12, paired with Testbench 10. Laravel 13 requires PHP 8.3 or later and
+Illuminate 13.12.0 or later within Laravel 13, paired with Testbench 11.
+Laravel 11 and earlier are not supported. Changes must preserve both supported
+framework lines and their secure minimums.
+
 ## Setup
 
 ```bash

@@ -9,27 +9,57 @@ permissions:
 
 jobs:
   tests:
-    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / ${{ matrix.dependencies }}
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / Testbench ${{ matrix.testbench }} / ${{ matrix.dependencies }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.3', '8.4', '8.5']
-        laravel: ['11.*', '12.*', '13.*']
-        dependencies: [prefer-stable]
-        exclude:
-          - php: '8.2'
-            laravel: '13.*'
         include:
           - php: '8.2'
-            laravel: '11.*'
-            dependencies: prefer-lowest
-          - php: '8.2'
-            laravel: '12.*'
-            dependencies: prefer-lowest
+            laravel: '12'
+            illuminate: '^12.61.1'
+            testbench: '^10.0'
+            dependencies: highest
           - php: '8.3'
-            laravel: '13.*'
-            dependencies: prefer-lowest
+            laravel: '12'
+            illuminate: '^12.61.1'
+            testbench: '^10.0'
+            dependencies: highest
+          - php: '8.4'
+            laravel: '12'
+            illuminate: '^12.61.1'
+            testbench: '^10.0'
+            dependencies: highest
+          - php: '8.5'
+            laravel: '12'
+            illuminate: '^12.61.1'
+            testbench: '^10.0'
+            dependencies: highest
+          - php: '8.3'
+            laravel: '13'
+            illuminate: '^13.12.0'
+            testbench: '^11.0'
+            dependencies: highest
+          - php: '8.4'
+            laravel: '13'
+            illuminate: '^13.12.0'
+            testbench: '^11.0'
+            dependencies: highest
+          - php: '8.5'
+            laravel: '13'
+            illuminate: '^13.12.0'
+            testbench: '^11.0'
+            dependencies: highest
+          - php: '8.2'
+            laravel: '12'
+            illuminate: '^12.61.1'
+            testbench: '^10.0'
+            dependencies: lowest
+          - php: '8.3'
+            laravel: '13'
+            illuminate: '^13.12.0'
+            testbench: '^11.0'
+            dependencies: lowest
 
     steps:
       - name: Checkout
@@ -41,11 +71,23 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
 
+      - name: Select Laravel and Testbench pair
+        run: |
+          composer require --no-update \
+            "illuminate/bus:${{ matrix.illuminate }}" \
+            "illuminate/cache:${{ matrix.illuminate }}" \
+            "illuminate/console:${{ matrix.illuminate }}" \
+            "illuminate/contracts:${{ matrix.illuminate }}" \
+            "illuminate/database:${{ matrix.illuminate }}" \
+            "illuminate/queue:${{ matrix.illuminate }}" \
+            "illuminate/support:${{ matrix.illuminate }}"
+          composer require --dev --no-update \
+            "orchestra/testbench:${{ matrix.testbench }}"
+
       - name: Install dependencies
         uses: ramsey/composer-install@v3
         with:
           dependency-versions: ${{ matrix.dependencies }}
-          composer-options: --with="illuminate/support:${{ matrix.laravel }}"
 
       - name: Run PHPUnit
         run: composer test

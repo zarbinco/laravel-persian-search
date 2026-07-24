@@ -4,6 +4,10 @@ Operational work is explicit: the package never scans Composer classes,
 reflects over models, or infers all providers. Applications register source
 enumerators that yield existing typed locators.
 
+Laravel 12 requires PHP 8.2 or later and Illuminate 12.61.1 or later within
+Laravel 12. Laravel 13 requires PHP 8.3 or later and Illuminate 13.12.0 or later
+within Laravel 13. Laravel 11 and earlier are not supported.
+
 ## Source enumerators
 
 ```php
@@ -132,6 +136,28 @@ source-reference group. Document scans are chunked. Enumeration failure,
 source-limit overflow, ownership conflict, or lock failure deletes nothing.
 Each source-reference deletion is transactionally atomic; the whole operation
 is not a distributed transaction.
+
+## Partial execution reports
+
+Enumeration, validation, ownership analysis, and lock acquisition finish before
+mutation begins. If routing or deletion then fails, execution stops at that
+item and exits with code `1`. The immutable report preserves completed counts,
+records one failed item, and records the remaining items as unprocessed.
+Its status is `failed` when nothing completed or `partial_failure` when earlier
+work completed. Successful and dry-run reports use `success`.
+
+For reindex, completed work is the sum of synchronized, queued, and duplicate-
+suppressed sources. For executing prune, completed work is deleted source
+references, while deleted document counts remain the exact committed total.
+The maintenance lock and any unique queue lock acquired for a failed dispatch
+are released. Earlier committed source replacements, deletions, or accepted
+queue jobs are not rolled back.
+
+Human output shows the status and failed/unprocessed counters. JSON output
+includes the same deterministic report plus a fixed safe message. The original
+exception is retained only as the exception cause for programmatic diagnosis;
+its message, source keys, attributes, credentials, and other unsafe values are
+never rendered by the commands.
 
 ## Status and doctor
 

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   quality:
-    name: Validation, formatting, and static analysis
+    name: PHP 8.3 / Laravel 13 / Testbench 11 / highest quality
     runs-on: ubuntu-latest
 
     steps:
@@ -22,10 +22,22 @@ jobs:
           php-version: '8.3'
           coverage: none
 
-      - name: Install stable dependencies
+      - name: Select Laravel 13 and Testbench 11
+        run: |
+          composer require --no-update \
+            "illuminate/bus:^13.12.0" \
+            "illuminate/cache:^13.12.0" \
+            "illuminate/console:^13.12.0" \
+            "illuminate/contracts:^13.12.0" \
+            "illuminate/database:^13.12.0" \
+            "illuminate/queue:^13.12.0" \
+            "illuminate/support:^13.12.0"
+          composer require --dev --no-update "orchestra/testbench:^11.0"
+
+      - name: Install highest dependencies
         uses: ramsey/composer-install@v3
         with:
-          dependency-versions: prefer-stable
+          dependency-versions: highest
 
       - name: Validate Composer metadata
         run: composer validate --strict
@@ -38,3 +50,6 @@ jobs:
 
       - name: Run static analysis
         run: composer analyse -- --no-progress
+
+      - name: Run PHPUnit
+        run: composer test

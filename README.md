@@ -5,8 +5,31 @@ Laravel Persian Search provides a portable, document-first search index for Lara
 ## Requirements
 
 - PHP `^8.2`
-- Laravel components `^11.0`, `^12.0`, or `^13.0`
+- Laravel 12 (`illuminate/*` `^12.61.1`) on PHP 8.2+
+- Laravel 13 (`illuminate/*` `^13.12.0`) on PHP 8.3+
 - `zarbinco/laravel-persian-core` `^0.2`
+
+Laravel 12 requires PHP 8.2 or later and Illuminate 12.61.1 or later within
+Laravel 12. Laravel 13 requires PHP 8.3 or later and Illuminate 13.12.0 or later
+within Laravel 13. Laravel 11 and earlier are not supported. The CI matrix pairs
+Laravel 12 with Testbench 10 and Laravel 13 with Testbench 11.
+
+## Implemented capabilities
+
+Implemented behavior includes:
+
+- locale-aware Persian text processing, wrong-keyboard correction, and synonym
+  query variants;
+- validated document providers, atomic indexing, and provider-aware lifecycle
+  synchronization;
+- dependency-aware reindexing and exact cross-locale counterpart bridging;
+- deterministic bounded retrieval and ranking, effective suggestion evidence,
+  offset pagination, facets, and source-type groups;
+- enumerator-driven full reindex, authoritative orphan pruning, and read-only
+  status and doctor diagnostics.
+
+Reindex and prune use configured source enumerators rather than class scanning,
+and both expose deterministic human-readable and JSON reports.
 
 ## Installation
 
@@ -388,7 +411,7 @@ also does not provide provider-wide orphan cleanup, recursive dependency
 chaining, cross-service transactions, or custom distributed locks.
 
 When `index.include_soft_deleted` is enabled, soft-deleted models keep their
-documents, are included by model reindexing, and may be hydrated in search
+documents, are included by registered source enumeration, and may be hydrated in search
 results through the model's normal scoped query plus `withTrashed()`. Force
 deletion still removes their documents.
 
@@ -741,8 +764,11 @@ The default database implementation is intentionally portable and bounded.
 Offset pagination is stable only while the index and ranking inputs remain
 unchanged. Candidate limits can make totals and facets inexact, and increasing
 them increases query and memory work. Leading-wildcard substring retrieval is
-not full-text-index optimized. Cursor pagination, dependency reindexing,
-cross-locale bridging, and typo-tolerant search are not provided.
+not full-text-index optimized. The package does not provide cursor pagination,
+generic edit-distance fuzzy search, machine translation, automatic
+provider/relation discovery, recursive dependency graphs, an outbox,
+distributed transactions, or adapters for Elasticsearch, Meilisearch, or
+Laravel Scout.
 
 ## Testing
 

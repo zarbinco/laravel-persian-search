@@ -42,6 +42,15 @@ final class SearchOperationOutput
         return ['status' => $status, 'message' => $message];
     }
 
+    /** @return array<string, mixed> */
+    public static function executionFailure(JsonSerializable $report, string $message): array
+    {
+        $data = $report->jsonSerialize();
+        $data['message'] = $message;
+
+        return $data;
+    }
+
     private static function sanitize(mixed $value): mixed
     {
         if (is_string($value)) {

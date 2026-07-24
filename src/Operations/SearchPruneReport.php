@@ -18,22 +18,41 @@ final readonly class SearchPruneReport implements JsonSerializable
         public int $orphanedDocuments,
         public int $deletedSourceReferences,
         public int $deletedDocuments,
+        public int $failedSourceReferences = 0,
+        public int $unprocessedSourceReferences = 0,
     ) {
         foreach (get_object_vars($this) as $value) {
             if (is_int($value) && $value < 0) {
                 throw new InvalidArgumentException('Search prune report counts must not be negative.');
             }
         }
-        if (! $this->executed && ($this->deletedSourceReferences !== 0 || $this->deletedDocuments !== 0)) {
-            throw new InvalidArgumentException('A prune dry-run cannot report deletions.');
+        if ($this->orphanedSourceReferences > $this->persistedSourceReferences
+            || $this->deletedSourceReferences > $this->orphanedSourceReferences
+            || $this->deletedDocuments > $this->orphanedDocuments
+            || $this->failedSourceReferences > $this->orphanedSourceReferences
+            || $this->deletedSourceReferences + $this->failedSourceReferences + $this->unprocessedSourceReferences > $this->orphanedSourceReferences
+            || (! $this->executed && ($this->deletedSourceReferences + $this->deletedDocuments + $this->failedSourceReferences + $this->unprocessedSourceReferences) !== 0)
+            || ($this->executed && $this->deletedSourceReferences + $this->failedSourceReferences + $this->unprocessedSourceReferences !== $this->orphanedSourceReferences)
+            || ($this->unprocessedSourceReferences > 0 && $this->failedSourceReferences === 0)
+            || $this->failedSourceReferences > 1) {
+            throw new InvalidArgumentException('Search prune report counts are inconsistent.');
         }
+    }
+
+    public function status(): string
+    {
+        if ($this->failedSourceReferences === 0) {
+            return 'success';
+        }
+
+        return $this->deletedSourceReferences > 0 ? 'partial_failure' : 'failed';
     }
 
     /** @return array<string, mixed> */
     public function toArray(): array
     {
         return [
-            'status' => 'success',
+            'status' => $this->status(),
             'executed' => $this->executed,
             'providers' => $this->providers,
             'authoritative_enumerators' => $this->authoritativeEnumerators,
@@ -44,6 +63,8 @@ final readonly class SearchPruneReport implements JsonSerializable
             'orphaned_documents' => $this->orphanedDocuments,
             'deleted_source_references' => $this->deletedSourceReferences,
             'deleted_documents' => $this->deletedDocuments,
+            'failed_source_references' => $this->failedSourceReferences,
+            'unprocessed_source_references' => $this->unprocessedSourceReferences,
         ];
     }
 

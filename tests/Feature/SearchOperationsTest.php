@@ -39,6 +39,8 @@ final class SearchOperationsTest extends TestCase
     {
         parent::setUp();
         OperationsProductEnumerator::$duplicates = false;
+        OperationsProduct::$searchableCalls = 0;
+        OperationsProduct::$failOnSearchableCall = null;
         config()->set('persian-search.index.sync_on_save', false);
         config()->set('persian-search.operations.enumerators', [OperationsProductEnumerator::class]);
         $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
@@ -296,6 +298,10 @@ final class OperationsProduct extends Model implements PersianSearchable
 {
     use HasPersianSearch;
 
+    public static int $searchableCalls = 0;
+
+    public static ?int $failOnSearchableCall = null;
+
     protected $table = 'operations_products';
 
     protected $guarded = [];
@@ -303,6 +309,11 @@ final class OperationsProduct extends Model implements PersianSearchable
     /** @return array<int|string, string|int|float> */
     public function persianSearchableFields(): array
     {
+        self::$searchableCalls++;
+        if (self::$failOnSearchableCall === self::$searchableCalls) {
+            throw new \RuntimeException("provider-password=secret\nsource-key={$this->getKey()}");
+        }
+
         return ['title'];
     }
 }

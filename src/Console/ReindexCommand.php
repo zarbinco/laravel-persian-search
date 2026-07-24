@@ -5,10 +5,12 @@ namespace Zarbinco\PersianSearch\Console;
 use Illuminate\Console\Command;
 use Throwable;
 use Zarbinco\PersianSearch\Exceptions\SearchMaintenanceLockUnavailableException;
+use Zarbinco\PersianSearch\Exceptions\SearchOperationExecutionException;
 use Zarbinco\PersianSearch\Operations\SearchOperationExitCode;
 use Zarbinco\PersianSearch\Operations\SearchOperationFailureFormatter;
 use Zarbinco\PersianSearch\Operations\SearchOperationOutput;
 use Zarbinco\PersianSearch\Operations\SearchReindexOperation;
+use Zarbinco\PersianSearch\Operations\SearchReindexReport;
 use Zarbinco\PersianSearch\Operations\SearchReindexRequest;
 
 final class ReindexCommand extends Command
@@ -51,27 +53,58 @@ final class ReindexCommand extends Command
                 $limit,
                 $dryRun,
             ));
-            if ($json) {
-                $this->line(SearchOperationOutput::json($report));
-            } else {
-                $this->components->info($dryRun ? 'Reindex dry-run completed.' : 'Reindex completed.');
-                $this->table(['Metric', 'Count'], [
-                    ['Enumerators', $report->enumerators],
-                    ['Enumerated', $report->enumerated],
-                    ['Unique sources', $report->uniqueSources],
-                    ['Duplicates', $report->duplicates],
-                    ['Synchronized', $report->synchronized],
-                    ['Queued', $report->queued],
-                    ['Suppressed', $report->suppressed],
-                ]);
-            }
+            $this->report($report, $json, $dryRun ? 'Reindex dry-run completed.' : 'Reindex completed.');
 
             return SearchOperationExitCode::Success->value;
         } catch (SearchMaintenanceLockUnavailableException $exception) {
             return $this->failure($exception->getMessage(), $json, SearchOperationExitCode::LockUnavailable);
+        } catch (SearchOperationExecutionException $exception) {
+            if (! $exception->partialReport instanceof SearchReindexReport) {
+                return $this->failure('Search reindex execution failed safely.', $json);
+            }
+            $this->report(
+                $exception->partialReport,
+                $json,
+                'Search reindex execution stopped safely.',
+                $exception->getMessage(),
+            );
+
+            return SearchOperationExitCode::Failed->value;
         } catch (Throwable $exception) {
             return $this->failure(app(SearchOperationFailureFormatter::class)->format($exception, 'reindex'), $json);
         }
+    }
+
+    private function report(
+        SearchReindexReport $report,
+        bool $json,
+        string $headline,
+        ?string $failure = null,
+    ): void {
+        if ($json) {
+            $this->line(SearchOperationOutput::json(
+                $failure === null
+                    ? $report
+                    : SearchOperationOutput::executionFailure($report, $failure),
+            ));
+
+            return;
+        }
+        $failure === null
+            ? $this->components->info($headline)
+            : $this->components->error($failure);
+        $this->table(['Metric', 'Count'], [
+            ['Status', $report->status()],
+            ['Enumerators', $report->enumerators],
+            ['Enumerated', $report->enumerated],
+            ['Unique sources', $report->uniqueSources],
+            ['Duplicates', $report->duplicates],
+            ['Synchronized', $report->synchronized],
+            ['Queued', $report->queued],
+            ['Suppressed', $report->suppressed],
+            ['Failed', $report->failed],
+            ['Unprocessed', $report->unprocessed],
+        ]);
     }
 
     private function limit(mixed $value): int|null|false

@@ -2,6 +2,8 @@
 
 namespace Zarbinco\PersianSearch\Operations;
 
+use Throwable;
+use Zarbinco\PersianSearch\Exceptions\SearchOperationExecutionException;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleExecutionMode;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecyclePolicy;
 use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleSynchronizationRouter;
@@ -52,7 +54,29 @@ final readonly class SearchReindexOperation
             $suppressed = 0;
             if (! $request->dryRun) {
                 foreach ($collection->all() as $locator) {
-                    $accepted = $this->router->routeUsing($locator->synchronization(), $mode);
+                    try {
+                        $accepted = $this->router->routeUsing($locator->synchronization(), $mode);
+                    } catch (Throwable $exception) {
+                        $completed = $synchronized + $queued + $suppressed;
+                        throw new SearchOperationExecutionException(
+                            new SearchReindexReport(
+                                $mode->value,
+                                false,
+                                count($selected),
+                                $collection->enumerated(),
+                                $collection->count(),
+                                $collection->duplicates(),
+                                $synchronized,
+                                $queued,
+                                $suppressed,
+                                1,
+                                $collection->count() - $completed - 1,
+                            ),
+                            'source_routing',
+                            'Search reindex execution failed safely.',
+                            $exception,
+                        );
+                    }
                     if ($mode === SearchLifecycleExecutionMode::Sync) {
                         $synchronized++;
                     } elseif ($accepted) {
@@ -73,6 +97,7 @@ final readonly class SearchReindexOperation
                 $synchronized,
                 $queued,
                 $suppressed,
+                0,
                 0,
             );
         } finally {

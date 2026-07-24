@@ -1,5 +1,9 @@
 # Search architecture
 
+Laravel 12 requires PHP 8.2 or later and Illuminate 12.61.1 or later within
+Laravel 12. Laravel 13 requires PHP 8.3 or later and Illuminate 13.12.0 or later
+within Laravel 13. Laravel 11 and earlier are not supported.
+
 The index is document-first. A source produces one or more independently stored search documents; a document does not require an Eloquent model.
 
 ## Identity
@@ -386,7 +390,7 @@ final class CatalogEntry extends Model
 }
 ```
 
-The default relation list is empty. Paths must be non-empty strings, duplicates are removed in declaration order, and nested paths such as `group.organization` are supported. The fallback provider uses `loadMissing()`, so already-loaded relations are not queried again. The model reindex command validates and eager-loads these declarations only when `EloquentSearchDocumentProvider` owns the rebuild. A custom provider neither invokes nor validates the fallback declaration and owns any relation or source preparation required by its `documents()` method. The command does not infer relations from searchable field names or remove global scopes.
+The default relation list is empty. Paths must be non-empty strings, duplicates are removed in declaration order, and nested paths such as `group.organization` are supported. The fallback provider uses `loadMissing()`, so already-loaded relations are not queried again. Enumerator-driven reindexing validates and eager-loads these declarations only when `EloquentSearchDocumentProvider` owns synchronization. A custom provider neither invokes nor validates the fallback declaration and owns any relation or source preparation required by its `documents()` method. Reindexing does not infer relations from searchable field names or remove global scopes.
 
 The Eloquent lifecycle uses `saved` for create, update, and restore. Deletion
 uses `deleting` only to prepare an immutable synchronization and `deleted` only
