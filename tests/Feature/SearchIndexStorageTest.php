@@ -208,25 +208,21 @@ final class SearchIndexStorageTest extends TestCase
         $this->assertSame('testing', $record->getConnectionName());
     }
 
-    public function test_reindex_and_flush_commands_use_source_type(): void
+    public function test_operational_reindex_and_explicit_flush_api_use_source_type(): void
     {
         StorageProduct::create(['title' => 'اول']);
         StorageProduct::create(['title' => 'دوم']);
         $this->assertSame(2, StorageProduct::count());
 
-        $reindex = $this->artisan('persian-search:reindex', ['model' => StorageProduct::class]);
+        $reindex = $this->operationalReindex(StorageProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $reindex);
-        $reindex->expectsOutputToContain('Indexed 2 Persian search document(s).');
         $this->assertSame(0, $reindex->run());
         $this->assertSame(2, SearchDocumentRecord::count());
 
         PersianSearch::index(StorageProduct::query()->firstOrFail());
         $this->assertSame(2, SearchDocumentRecord::count());
 
-        $flush = $this->artisan('persian-search:flush', ['sourceType' => StorageProduct::class, '--force' => true]);
-        $this->assertInstanceOf(PendingCommand::class, $flush);
-        $flush->expectsOutputToContain('Deleted 2 Persian search document(s).');
-        $this->assertSame(0, $flush->run());
+        $this->assertSame(2, PersianSearch::indexManager()->flush(StorageProduct::class));
         $this->assertSame(0, SearchDocumentRecord::count());
     }
 

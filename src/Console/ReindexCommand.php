@@ -3,128 +3,97 @@
 namespace Zarbinco\PersianSearch\Console;
 
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use LogicException;
-use Zarbinco\PersianSearch\Contracts\PersianSearchable;
-use Zarbinco\PersianSearch\Indexing\SearchIndexManager;
-use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
-use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
+use Throwable;
+use Zarbinco\PersianSearch\Exceptions\SearchMaintenanceLockUnavailableException;
+use Zarbinco\PersianSearch\Operations\SearchOperationExitCode;
+use Zarbinco\PersianSearch\Operations\SearchOperationFailureFormatter;
+use Zarbinco\PersianSearch\Operations\SearchOperationOutput;
+use Zarbinco\PersianSearch\Operations\SearchReindexOperation;
+use Zarbinco\PersianSearch\Operations\SearchReindexRequest;
 
 final class ReindexCommand extends Command
 {
     protected $signature = 'persian-search:reindex
-        {model : Fully-qualified searchable model class}
-        {--chunk=100 : Number of records per chunk}
-        {--fresh : Flush existing indexed documents for this model before reindexing}';
+        {--enumerator=* : Select registered enumerator keys}
+        {--provider=* : Select registered provider keys}
+        {--sync : Execute synchronously}
+        {--queue : Dispatch unique queued synchronizations}
+        {--limit= : Positive source limit}
+        {--dry-run : Enumerate and report without routing}
+        {--json : Emit one JSON object}
+        {--force : Skip write confirmation}
+        {--no-progress : Disable human progress output}';
 
-    protected $description = 'Rebuild persisted Persian search documents for a searchable model.';
+    protected $description = 'Safely reindex explicitly enumerated Persian search sources.';
 
-    public function handle(
-        SearchIndexManager $index,
-        EloquentSearchDocumentProvider $eloquent,
-        SearchDocumentProviderRegistry $providers,
-    ): int {
-        $modelClass = $this->argument('model');
-        $chunk = max(1, (int) $this->option('chunk'));
-
-        if (! is_string($modelClass) || $modelClass === '') {
-            $this->components->error('A fully-qualified searchable model class is required.');
-
-            return self::FAILURE;
+    public function handle(): int
+    {
+        $json = (bool) $this->option('json');
+        if ((bool) $this->option('sync') && (bool) $this->option('queue')) {
+            return $this->failure('Options --sync and --queue are mutually exclusive.', $json);
+        }
+        $limit = $this->limit($this->option('limit'));
+        if ($limit === false) {
+            return $this->failure('Option --limit must be a positive integer.', $json);
+        }
+        $dryRun = (bool) $this->option('dry-run');
+        if (! $dryRun && ! (bool) $this->option('force')
+            && (! $this->input->isInteractive() || ! $this->confirm('Proceed with Persian search reindexing?'))) {
+            return $this->failure('Reindex confirmation is required.', $json, SearchOperationExitCode::ConfirmationRequired);
         }
 
-        if (! class_exists($modelClass)) {
-            $this->components->error("Model [{$modelClass}] does not exist.");
-
-            return self::FAILURE;
-        }
-
-        if (! is_subclass_of($modelClass, Model::class)) {
-            $this->components->error("Class [{$modelClass}] must extend [".Model::class.'].');
-
-            return self::FAILURE;
-        }
-
-        if (! is_subclass_of($modelClass, PersianSearchable::class)) {
-            $this->components->error("Model [{$modelClass}] must implement [".PersianSearchable::class.'].');
-
-            return self::FAILURE;
-        }
-
-        $fresh = (bool) $this->option('fresh');
-
-        /** @var class-string<Model&PersianSearchable> $modelClass */
-        $model = new $modelClass;
-        $modelProvider = $providers->resolve($model);
-        $customFresh = $fresh && ! $modelProvider instanceof EloquentSearchDocumentProvider;
-
-        if ($fresh && ! $customFresh) {
-            $deleted = $index->flush($modelClass);
-            $this->components->info("Deleted {$deleted} existing Persian search document(s).");
-        }
-
-        if ($customFresh) {
-            $this->components->warn(
-                'Orphaned custom-provider sources for models no longer in the database are not removed; use an explicit source-type flush.',
-            );
-        }
-
-        $query = $model->newQuery();
-        $relations = $modelProvider instanceof EloquentSearchDocumentProvider
-            ? $eloquent->relations($model)
-            : [];
-
-        if ($relations !== []) {
-            $query->with($relations);
-        }
-
-        if ((bool) config('persian-search.index.include_soft_deleted', false)
-            && in_array(SoftDeletes::class, class_uses_recursive($model), true)) {
-            $withTrashed = [$query, 'withTrashed'];
-
-            if (! is_callable($withTrashed)) {
-                throw new LogicException('Soft-deleting model query does not support withTrashed().');
+        try {
+            $operation = app(SearchReindexOperation::class);
+            $report = $operation->run(new SearchReindexRequest(
+                $this->strings($this->option('enumerator')),
+                $this->strings($this->option('provider')),
+                (bool) $this->option('sync') ? 'sync' : ((bool) $this->option('queue') ? 'queue' : null),
+                $limit,
+                $dryRun,
+            ));
+            if ($json) {
+                $this->line(SearchOperationOutput::json($report));
+            } else {
+                $this->components->info($dryRun ? 'Reindex dry-run completed.' : 'Reindex completed.');
+                $this->table(['Metric', 'Count'], [
+                    ['Enumerators', $report->enumerators],
+                    ['Enumerated', $report->enumerated],
+                    ['Unique sources', $report->uniqueSources],
+                    ['Duplicates', $report->duplicates],
+                    ['Synchronized', $report->synchronized],
+                    ['Queued', $report->queued],
+                    ['Suppressed', $report->suppressed],
+                ]);
             }
 
-            $withTrashed();
+            return SearchOperationExitCode::Success->value;
+        } catch (SearchMaintenanceLockUnavailableException $exception) {
+            return $this->failure($exception->getMessage(), $json, SearchOperationExitCode::LockUnavailable);
+        } catch (Throwable $exception) {
+            return $this->failure(app(SearchOperationFailureFormatter::class)->format($exception, 'reindex'), $json);
+        }
+    }
+
+    private function limit(mixed $value): int|null|false
+    {
+        if ($value === null) {
+            return null;
         }
 
-        $sourceCount = 0;
-        $incomingCount = 0;
-        $createdCount = 0;
-        $updatedCount = 0;
-        $unchangedCount = 0;
-        $deletedCount = 0;
+        return is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1 ? (int) $value : false;
+    }
 
-        $query->chunkById($chunk, function ($models) use (
-            $index,
-            &$sourceCount,
-            &$incomingCount,
-            &$createdCount,
-            &$updatedCount,
-            &$unchangedCount,
-            &$deletedCount,
-        ): void {
-            foreach ($models as $model) {
-                $result = $index->indexSource($model);
+    /** @return list<string> */
+    private function strings(mixed $value): array
+    {
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+    }
 
-                $sourceCount++;
-                $incomingCount += $result->incoming;
-                $createdCount += $result->created;
-                $updatedCount += $result->updated;
-                $unchangedCount += $result->unchanged;
-                $deletedCount += $result->deleted;
-            }
-        });
+    private function failure(string $message, bool $json, SearchOperationExitCode $code = SearchOperationExitCode::Failed): int
+    {
+        $json ? $this->line(SearchOperationOutput::json(SearchOperationOutput::error($message)))
+            : $this->components->error($message);
 
-        $this->components->info("Indexed {$incomingCount} Persian search document(s).");
-        $this->components->info("Created {$createdCount} Persian search document(s).");
-        $this->components->info("Updated {$updatedCount} Persian search document(s).");
-        $this->components->info("Unchanged {$unchangedCount} Persian search document(s).");
-        $this->components->info("Deleted {$deletedCount} stale Persian search document(s).");
-        $this->components->info("Processed {$sourceCount} searchable source(s).");
-
-        return self::SUCCESS;
+        return $code->value;
     }
 }

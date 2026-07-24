@@ -12,7 +12,6 @@ use Illuminate\Testing\PendingCommand;
 use Zarbinco\PersianSearch\Contracts\PersianSearchable;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Eloquent\HasPersianSearch;
-use Zarbinco\PersianSearch\Exceptions\InvalidSearchDocumentSetException;
 use Zarbinco\PersianSearch\Facades\PersianSearch;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Jobs\SynchronizeEloquentSearchSourceJob;
@@ -178,10 +177,8 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         MultiProviderProduct::create(['title' => 'One']);
         MultiProviderProduct::create(['title' => 'Two']);
 
-        $command = $this->artisan('persian-search:reindex', ['model' => MultiProviderProduct::class]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Indexed 6 Persian search document(s).');
-        $command->expectsOutputToContain('Processed 2 searchable source(s).');
 
         $this->assertSame(0, $command->execute());
         $this->assertDatabaseCount('persian_search_documents', 6);
@@ -198,21 +195,12 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $this->assertDatabaseCount('persian_search_documents', 6);
 
         MultiProductProvider::$includeAdmin = false;
-        $command = $this->artisan('persian-search:reindex', [
-            'model' => MultiProviderProduct::class,
-            '--fresh' => true,
-            '--chunk' => 1,
-        ]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Deleted 2 stale Persian search document(s).');
-        $command->expectsOutputToContain('Indexed 4 Persian search document(s).');
-        $command->expectsOutputToContain('Processed 2 searchable source(s).');
-        $command->expectsOutputToContain('Orphaned custom-provider sources');
-
         $this->assertSame(0, $command->execute());
         $this->assertDatabaseCount('persian_search_documents', 4);
         $this->assertSame(4, MultiProductProvider::$documentsCalls);
-        $this->assertSame(4, MultiProductProvider::$referenceCalls);
+        $this->assertSame(6, MultiProductProvider::$referenceCalls);
         $this->assertSame([], SearchDocumentRecord::query()->where('partition', 'admin')->pluck('source_key')->all());
         $this->assertSame(2, SearchDocumentRecord::query()->distinct()->count('source_key'));
     }
@@ -225,18 +213,10 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         PersianSearch::indexSource($product);
         MultiProductProvider::$invalidOutput = true;
 
-        $command = $this->artisan('persian-search:reindex', [
-            'model' => MultiProviderProduct::class,
-            '--fresh' => true,
-        ]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
 
-        try {
-            $command->execute();
-            $this->fail('Expected invalid provider output.');
-        } catch (InvalidSearchDocumentSetException) {
-            $this->addToAssertionCount(1);
-        }
+        $this->assertSame(1, $command->execute());
 
         $this->assertDatabaseCount('persian_search_documents', 3);
         $this->assertSame(2, MultiProductProvider::$documentsCalls);
@@ -254,10 +234,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $unprocessed->delete();
         MultiProductProvider::$includeAdmin = false;
 
-        $command = $this->artisan('persian-search:reindex', [
-            'model' => MultiProviderProduct::class,
-            '--fresh' => true,
-        ]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
         $this->assertSame(0, $command->execute());
 
@@ -273,7 +250,7 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         PersianSearch::indexSource($product);
         MultiProductProvider::$includeAdmin = false;
 
-        $command = $this->artisan('persian-search:reindex', ['model' => MultiProviderProduct::class]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
         $this->assertSame(0, $command->execute());
 
@@ -291,16 +268,12 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         PersianSearch::index($orphan);
         $this->assertDatabaseCount('persian_search_documents', 2);
 
-        $command = $this->artisan('persian-search:reindex', [
-            'model' => MultiProviderProduct::class,
-            '--fresh' => true,
-        ]);
+        $command = $this->operationalReindex(MultiProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Deleted 2 existing Persian search document(s).');
         $this->assertSame(0, $command->execute());
 
-        $this->assertDatabaseCount('persian_search_documents', 1);
-        $this->assertDatabaseMissing('persian_search_documents', ['source_id' => '999']);
+        $this->assertDatabaseCount('persian_search_documents', 2);
+        $this->assertDatabaseHas('persian_search_documents', ['source_id' => '999']);
     }
 
     public function test_custom_provider_reindex_never_invokes_fallback_relation_declarations(): void
@@ -315,12 +288,8 @@ final class SearchDocumentProviderIntegrationTest extends TestCase
         $deleted = MultiProviderProduct::create(['title' => 'Deleted']);
         $deleted->delete();
 
-        foreach ([false, true] as $fresh) {
-            $command = $this->artisan('persian-search:reindex', [
-                'model' => MultiProviderProduct::class,
-                '--fresh' => $fresh,
-                '--chunk' => 1,
-            ]);
+        for ($iteration = 0; $iteration < 2; $iteration++) {
+            $command = $this->operationalReindex(MultiProviderProduct::class);
             $this->assertInstanceOf(PendingCommand::class, $command);
             $this->assertSame(0, $command->execute());
         }

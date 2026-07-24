@@ -27,6 +27,7 @@ final class SearchLocaleBridgeIntegrityTest extends TestCase
                 source_type VARCHAR(255) NOT NULL,
                 source_id VARCHAR(255) NULL,
                 source_connection VARCHAR(255) NULL,
+                provider_key VARCHAR(255) NOT NULL DEFAULT 'eloquent',
                 locale VARCHAR(32) COLLATE NOCASE NOT NULL DEFAULT 'und',
                 title TEXT NULL,
                 excerpt TEXT NULL,

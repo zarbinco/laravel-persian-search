@@ -83,9 +83,8 @@ final class SoftDeleteIntegrityTest extends TestCase
         $trashed = SoftDeletedProduct::create(['title' => 'حذف شده']);
         $trashed->delete();
 
-        $command = $this->artisan('persian-search:reindex', ['model' => SoftDeletedProduct::class]);
+        $command = $this->operationalReindex(SoftDeletedProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Indexed 2 Persian search document(s).');
 
         $this->assertSame(0, $command->run());
         $this->assertSame(2, SearchDocumentRecord::count());
@@ -99,9 +98,8 @@ final class SoftDeleteIntegrityTest extends TestCase
         $trashed = SoftDeletedProduct::create(['title' => 'حذف شده']);
         $trashed->delete();
 
-        $command = $this->artisan('persian-search:reindex', ['model' => SoftDeletedProduct::class]);
+        $command = $this->operationalReindex(SoftDeletedProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
-        $command->expectsOutputToContain('Indexed 1 Persian search document(s).');
 
         $this->assertSame(0, $command->run());
         $this->assertSame(1, SearchDocumentRecord::count());

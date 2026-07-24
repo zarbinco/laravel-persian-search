@@ -66,9 +66,11 @@
         "test": "phpunit",
         "analyse": "phpstan analyse",
         "format": "pint",
-        "lint": [
+        "format:test": "pint --test",
+        "check": [
             "composer validate --strict",
-            "composer format -- --test",
+            "composer dump-autoload --optimize --strict-psr",
+            "composer format:test",
             "composer analyse",
             "composer test"
         ]

@@ -45,6 +45,16 @@ return [
         ],
     ],
 
+    'operations' => [
+        'enumerators' => [],
+        'chunk_size' => 500,
+        'maximum_sources_per_run' => 100000,
+        'lock_store' => null,
+        'lock_key' => 'persian-search:maintenance',
+        'lock_seconds' => 3600,
+        'doctor_sample_size' => 100,
+    ],
+
     'ranking' => [
         'tier_scores' => [
             'exact_title' => 1400,

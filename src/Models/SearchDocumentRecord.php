@@ -17,6 +17,7 @@ use Zarbinco\PersianSearch\Providers\SearchSourceReference;
  * @property string $source_type
  * @property string|null $source_id
  * @property string|null $source_connection
+ * @property string $provider_key
  * @property string $locale
  * @property string|null $title
  * @property string|null $excerpt
@@ -75,6 +76,7 @@ final class SearchDocumentRecord extends Model
             'source_type' => $document->sourceType,
             'source_id' => $document->sourceId,
             'source_connection' => $document->sourceConnection,
+            'provider_key' => $document->providerKey,
             'title' => $document->title,
             'excerpt' => $document->excerpt,
             'normalized_title' => $document->normalizedTitle,

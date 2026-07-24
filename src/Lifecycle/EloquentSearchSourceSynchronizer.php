@@ -35,7 +35,10 @@ final readonly class EloquentSearchSourceSynchronizer
             ->first();
 
         if (! $model instanceof Model) {
-            $this->index->deleteSourceReference($synchronization->fallbackReference);
+            $this->index->deleteSourceReferenceWithProvider(
+                $synchronization->fallbackReference,
+                $synchronization->providerKey,
+            );
 
             return null;
         }
@@ -44,7 +47,10 @@ final readonly class EloquentSearchSourceSynchronizer
         $isTrashed = $usesSoftDeletes && method_exists($model, 'trashed') && $model->trashed();
 
         if ($isTrashed && ! $this->policy->includeSoftDeleted) {
-            $this->index->deleteSourceReference($synchronization->fallbackReference);
+            $this->index->deleteSourceReferenceWithProvider(
+                $synchronization->fallbackReference,
+                $synchronization->providerKey,
+            );
 
             return null;
         }

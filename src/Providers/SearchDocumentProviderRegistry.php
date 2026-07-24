@@ -178,7 +178,7 @@ final class SearchDocumentProviderRegistry
     }
 
     /** @return list<string> */
-    private function keys(): array
+    public function keys(): array
     {
         $this->initialize();
 

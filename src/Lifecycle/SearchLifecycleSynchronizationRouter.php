@@ -15,12 +15,19 @@ final readonly class SearchLifecycleSynchronizationRouter
 
     public function route(SearchLifecycleSynchronization $synchronization): void
     {
-        if ($this->policy->execution === SearchLifecycleExecutionMode::Sync) {
+        $this->routeUsing($synchronization, $this->policy->execution);
+    }
+
+    public function routeUsing(
+        SearchLifecycleSynchronization $synchronization,
+        SearchLifecycleExecutionMode $mode,
+    ): bool {
+        if ($mode === SearchLifecycleExecutionMode::Sync) {
             $this->synchronizer->synchronize($synchronization);
 
-            return;
+            return true;
         }
 
-        $this->jobs->dispatch(new SynchronizeEloquentSearchSourceJob($synchronization, $this->queuePolicy));
+        return $this->jobs->dispatch(new SynchronizeEloquentSearchSourceJob($synchronization, $this->queuePolicy));
     }
 }

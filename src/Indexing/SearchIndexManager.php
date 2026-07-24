@@ -61,6 +61,7 @@ final readonly class SearchIndexManager
 
     public function indexDocument(SearchDocument $document): SearchDocumentRecord
     {
+        $document = $document->withProviderKey('eloquent');
         $record = new SearchDocumentRecord;
         $connection = $record->getConnection();
         $connectionName = $connection->getName();
@@ -141,6 +142,13 @@ final readonly class SearchIndexManager
         return $this->sourceQuery($reference, (new SearchDocumentRecord)->getConnectionName())->delete();
     }
 
+    public function deleteSourceReferenceWithProvider(SearchSourceReference $reference, string $providerKey): int
+    {
+        return $this->sourceQuery($reference, (new SearchDocumentRecord)->getConnectionName())
+            ->where('provider_key', $providerKey)
+            ->delete();
+    }
+
     public function deleteSourceKey(string $sourceKey, ?string $partition = null): int
     {
         $sourceKey = trim($sourceKey);
@@ -215,7 +223,10 @@ final readonly class SearchIndexManager
             $existingByIdentity[$key] = $record;
         }
 
-        $documents = $set->all();
+        $documents = array_map(
+            static fn (SearchDocument $document): SearchDocument => $document->withProviderKey($set->providerKey),
+            $set->all(),
+        );
         usort($documents, static fn (SearchDocument $left, SearchDocument $right): int => [
             $left->partition(),
             $left->locale(),

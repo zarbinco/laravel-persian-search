@@ -12,9 +12,11 @@ use Zarbinco\PersianSearch\Candidates\SearchCandidateMatcher;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePlanBuilder;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicy;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicyFactory;
-use Zarbinco\PersianSearch\Console\FlushCommand;
+use Zarbinco\PersianSearch\Console\DoctorCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
+use Zarbinco\PersianSearch\Console\PruneCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
+use Zarbinco\PersianSearch\Console\StatusCommand;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDependencyPendingState;
@@ -53,6 +55,14 @@ use Zarbinco\PersianSearch\Lifecycle\SearchLifecycleSynchronizationRouter;
 use Zarbinco\PersianSearch\Lifecycle\SearchQueuePolicy;
 use Zarbinco\PersianSearch\Lifecycle\SearchSourceLocatorFactory;
 use Zarbinco\PersianSearch\Lifecycle\UniqueSearchLifecycleJobDispatcher;
+use Zarbinco\PersianSearch\Operations\SearchDoctorService;
+use Zarbinco\PersianSearch\Operations\SearchMaintenanceLockManager;
+use Zarbinco\PersianSearch\Operations\SearchOperationsPolicy;
+use Zarbinco\PersianSearch\Operations\SearchOperationsPolicyFactory;
+use Zarbinco\PersianSearch\Operations\SearchPruneOperation;
+use Zarbinco\PersianSearch\Operations\SearchReindexOperation;
+use Zarbinco\PersianSearch\Operations\SearchSourceEnumeratorRegistry;
+use Zarbinco\PersianSearch\Operations\SearchStatusService;
 use Zarbinco\PersianSearch\Providers\EloquentSearchDocumentProvider;
 use Zarbinco\PersianSearch\Providers\EloquentSearchSourceReferenceFactory;
 use Zarbinco\PersianSearch\Providers\SearchDocumentProviderRegistry;
@@ -325,6 +335,23 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(SearchDependencyObserver::class, SearchDependencyObserver::class);
         $this->app->singleton(SearchDependencyObserverRegistrar::class, SearchDependencyObserverRegistrar::class);
 
+        $this->app->singleton(SearchOperationsPolicyFactory::class, SearchOperationsPolicyFactory::class);
+        $this->app->singleton(SearchOperationsPolicy::class, function ($app): SearchOperationsPolicy {
+            return $app->make(SearchOperationsPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchSourceEnumeratorRegistry::class, function ($app): SearchSourceEnumeratorRegistry {
+            return new SearchSourceEnumeratorRegistry(
+                $app,
+                $app->make(SearchOperationsPolicy::class),
+                $app->make(SearchDocumentProviderRegistry::class),
+            );
+        });
+        $this->app->singleton(SearchMaintenanceLockManager::class, SearchMaintenanceLockManager::class);
+        $this->app->singleton(SearchReindexOperation::class, SearchReindexOperation::class);
+        $this->app->singleton(SearchPruneOperation::class, SearchPruneOperation::class);
+        $this->app->singleton(SearchStatusService::class, SearchStatusService::class);
+        $this->app->singleton(SearchDoctorService::class, SearchDoctorService::class);
+
         $this->app->singleton(PersianSearchManager::class, function ($app): PersianSearchManager {
             return new PersianSearchManager(
                 $app->make(SearchTextPipeline::class),
@@ -363,7 +390,9 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->commands([
             InstallCommand::class,
             ReindexCommand::class,
-            FlushCommand::class,
+            PruneCommand::class,
+            StatusCommand::class,
+            DoctorCommand::class,
         ]);
     }
 }

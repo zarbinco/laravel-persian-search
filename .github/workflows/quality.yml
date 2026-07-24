@@ -1,0 +1,40 @@
+name: Package quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Validation, formatting, and static analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install stable dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: prefer-stable
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Validate PSR-4 autoloading
+        run: composer dump-autoload --optimize --strict-psr
+
+      - name: Check formatting
+        run: composer format:test
+
+      - name: Run static analysis
+        run: composer analyse -- --no-progress

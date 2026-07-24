@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch\Indexing;
 use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
+use Zarbinco\PersianSearch\Providers\ProviderKey;
 use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
 
 final readonly class SearchDocument
@@ -42,6 +43,7 @@ final readonly class SearchDocument
         public bool $isActive = true,
         ?DateTimeInterface $sourceUpdatedAt = null,
         public ?string $sourceConnection = null,
+        public string $providerKey = 'eloquent',
     ) {
         $this->identity = new SearchDocumentIdentity($partition, $sourceKey, $locale);
         $this->sourceType = trim($sourceType);
@@ -53,6 +55,10 @@ final readonly class SearchDocument
 
         if ($this->sourceConnection !== null && ! CanonicalConfigurationName::isValid($this->sourceConnection)) {
             throw new InvalidArgumentException('Search document source connection must be a canonical safe connection name.');
+        }
+
+        if (ProviderKey::forLookup($this->providerKey) !== $this->providerKey) {
+            throw new InvalidArgumentException('Search document provider key must be canonical.');
         }
 
         $safePayload = SearchDocumentHasher::jsonSafeValue($payload);
@@ -88,6 +94,7 @@ final readonly class SearchDocument
             'source_type' => $this->sourceType,
             'source_id' => $this->sourceId,
             'source_connection' => $this->sourceConnection,
+            'provider_key' => $this->providerKey,
             'title' => $this->title,
             'excerpt' => $this->excerpt,
             'normalized_title' => $this->normalizedTitle,
@@ -99,6 +106,29 @@ final readonly class SearchDocument
             'is_active' => $this->isActive,
             'source_updated_at' => $this->sourceUpdatedAt,
         ];
+    }
+
+    public function withProviderKey(string $providerKey): self
+    {
+        return new self(
+            partition: $this->partition(),
+            sourceKey: $this->sourceKey(),
+            sourceType: $this->sourceType,
+            sourceId: $this->sourceId,
+            locale: $this->locale(),
+            title: $this->title,
+            excerpt: $this->excerpt,
+            normalizedTitle: $this->normalizedTitle,
+            normalizedExcerpt: $this->normalizedExcerpt,
+            normalizedKeywords: $this->normalizedKeywords,
+            normalizedContent: $this->normalizedContent,
+            payload: $this->payload,
+            priority: $this->priority,
+            isActive: $this->isActive,
+            sourceUpdatedAt: $this->sourceUpdatedAt,
+            sourceConnection: $this->sourceConnection,
+            providerKey: $providerKey,
+        );
     }
 
     /**

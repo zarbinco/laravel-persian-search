@@ -10,7 +10,7 @@ final readonly class SearchSourceLocatorFactory
 {
     public function __construct(private SearchDocumentProviderRegistry $providers) {}
 
-    public function forModel(Model $source, string $providerKey): SearchSourceLocator
+    public function forModel(Model $source, string $providerKey, ?string $partition = null): SearchSourceLocator
     {
         $provider = $this->providers->provider($providerKey);
 
@@ -22,10 +22,11 @@ final readonly class SearchSourceLocatorFactory
             EloquentSearchSourceLocator::fromModel($source),
             $providerKey,
             $provider->reference($source),
+            $partition ?? (string) config('persian-search.index.default_partition', 'default'),
         );
     }
 
-    public function forSource(Model $source): SearchSourceLocator
+    public function forSource(Model $source, ?string $partition = null): SearchSourceLocator
     {
         $provider = $this->providers->resolve($source);
 
@@ -33,6 +34,7 @@ final readonly class SearchSourceLocatorFactory
             EloquentSearchSourceLocator::fromModel($source),
             $this->providers->keyFor($provider),
             $provider->reference($source),
+            $partition ?? (string) config('persian-search.index.default_partition', 'default'),
         );
     }
 }

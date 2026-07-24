@@ -351,7 +351,17 @@ Direct `indexDocument()` remains a low-level, hash-aware single-identity upsert 
 
 Each replacement is transactionally all-or-nothing. Existing rows for the source are locked during diff and persistence, and database uniqueness continues protecting document identities. This is not a cache, advisory, or distributed lock; in particular, the package does not claim stronger cross-database first-write serialization when no existing row is available to lock. Transaction retries rerun persistence against the same prevalidated document set and never rerun provider business logic.
 
-The model-class reindex command sends every current model through the same atomic `indexSource()` path and reports processed sources plus incoming, created, updated, unchanged, and stale-deleted totals. Fallback `--fresh` retains its separate global model-class flush so missing model rows are cleaned. Custom-provider `--fresh` does not pre-delete current sources and emits one warning because source identities belonging to model rows no longer returned by the scoped query cannot currently be enumerated; those orphaned documents require an explicit source-type flush.
+Operational reindexing is driven only by explicitly configured source
+enumerators. Enumerators return typed provider-aware locators; the existing
+current-state synchronizer reloads each source, and the lifecycle router
+performs synchronous or unique queued work. Commands never scan model classes
+or build provider documents themselves.
+
+Persisted documents carry the canonical provider key selected by the atomic
+indexer. Provider ownership is semantic hashed data, but it does not change the
+established `partition + source_key + locale` storage identity. Authoritative
+enumerators additionally define current provider-owned references for safe
+orphan pruning. See `docs/operations.md`.
 
 ## Built-in Eloquent fallback
 
@@ -502,6 +512,23 @@ dependency chaining, or cross-service atomicity. A surfaced post-commit failure
 may require explicit reindexing.
 
 Custom Eloquent providers remain authoritative for both indexing and deletion.
+
+Operational source identity has two deliberate forms. Lifecycle routing and
+unique queued jobs use provider plus Eloquent locator, so multiple partition
+claims for one source still synchronize once. Authoritative prune ownership
+uses provider, exact partition, source key, source type, and null-aware source
+ID, so one current partition cannot preserve an orphan in another partition.
+The same hashed canonical ownership identity classifies both enumerated and
+persisted references; locales are grouped below that identity.
+
+Operational status never probes a lock by acquiring it. It reports
+`available` or `held` only when the runtime provides a public non-mutating
+inspection API, and otherwise reports `unknown`. Doctor uses random temporary
+lock identities, validates queue connection/serialization/pre-commit behavior
+and the actual unique-job cache without dispatch, and bounds deep ownership
+sampling to the configured sample size. Disabled dependency policy prevents
+resolver registry construction. Extension failures cross the command boundary
+only as curated or fixed safe diagnostics.
 Their event-time reference provides deletion identity when the source no longer
 exists, while a surviving model is resolved again through the registry before
 atomic indexing. `index.sync_on_save` is the sole automatic lifecycle switch;

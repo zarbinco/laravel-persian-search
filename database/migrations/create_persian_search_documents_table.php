@@ -17,6 +17,7 @@ return new class extends Migration
                 $table->string('source_type');
                 $table->string('source_id')->nullable();
                 $table->string('source_connection')->nullable();
+                $table->string('provider_key')->default('eloquent');
                 $table->string('locale', 32)->default('und');
                 $table->text('title')->nullable();
                 $table->text('excerpt')->nullable();
@@ -38,6 +39,7 @@ return new class extends Migration
                 $table->index(['partition', 'source_type', 'locale', 'is_active'], 'ps_docs_partition_type_locale_active');
                 $table->index(['source_type', 'source_id'], 'ps_docs_source_type_id');
                 $table->index('indexed_at', 'ps_docs_indexed_at');
+                $table->index(['provider_key', 'is_active'], 'ps_docs_provider_active');
             },
         );
     }

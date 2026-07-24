@@ -194,7 +194,14 @@ final class CatalogEntry extends Model
 }
 ```
 
-The fallback provider calls `loadMissing()` for explicitly declared relation paths. The model reindex command eager-loads these relations only when the built-in Eloquent provider owns the rebuild, while retaining model global scopes and chunked iteration. Relation paths are never inferred from field names; invalid fallback declarations fail with a focused exception. Custom providers do not invoke or validate the fallback relation declaration and own any source-specific relation preparation needed by their `documents()` implementation. Declared fallback field values are aggregated into normalized content, while experimental field weights are accepted but are not persisted.
+The fallback provider calls `loadMissing()` for explicitly declared relation
+paths when current-state synchronization builds the document. Relation paths
+are never inferred from field names; invalid fallback declarations fail with a
+focused exception. Custom providers do not invoke or validate the fallback
+declaration and own any source-specific preparation needed by their
+`documents()` implementation. Declared fallback field values are aggregated
+into normalized content, while experimental field weights are accepted but
+are not persisted.
 
 ```php
 PersianSearch::index($entry);
@@ -703,13 +710,28 @@ Default text components can be replaced through Laravel's container by binding `
 ## Commands
 
 ```bash
-php artisan persian-search:reindex "App\Models\Product" --fresh
-php artisan persian-search:flush "App\Models\Product"
-php artisan persian-search:flush page --partition=public
-php artisan persian-search:flush --force
+php artisan persian-search:reindex --dry-run
+php artisan persian-search:reindex --queue --force
+php artisan persian-search:status
+php artisan persian-search:doctor --deep
+php artisan persian-search:prune
+php artisan persian-search:prune --execute --force
 ```
 
-Every current model is rebuilt through atomic source replacement. Command output reports processed sources plus incoming, created, updated, unchanged, and stale-deleted document totals. For the Eloquent fallback, `--fresh` first performs a global model-class flush, reports that count separately, and then rebuilds current models; this also removes fallback documents whose model rows no longer exist. A custom-provider `--fresh` does not pre-delete current sources, because replacement already removes their stale locales and partitions without rewriting unchanged rows. Custom-provider documents belonging to model rows no longer returned by the scoped model query cannot currently be enumerated; the command emits one warning per run and those orphaned sources require an explicit source-type flush.
+Reindexing accepts only configured enumerator and provider keys; it never accepts
+an arbitrary model class. Prune is read-only unless `--execute` is present and
+uses only authoritative enumerators. Reindex and executing prune share one
+atomic maintenance lock. Each command supports deterministic `--json` output.
+`reindex --limit` intentionally selects a partial source run, while
+`prune --limit` is a fail-closed authoritative safety ceiling: exceeding it
+produces no orphan report and deletes nothing.
+
+Authoritative enumerators must yield one locator for every partition they own.
+For example, a provider that owns both `public` and `archive` documents must
+yield both locators. Reindex deduplicates those locators to one source/provider
+synchronization, while prune retains their distinct partition ownership.
+See [docs/operations.md](docs/operations.md) for configuration, examples, exit
+codes, failure semantics, and large-run limits.
 
 ## Architecture and boundaries
 
@@ -726,7 +748,5 @@ cross-locale bridging, and typo-tolerant search are not provided.
 
 ```bash
 composer validate --strict
-composer format -- --test
-composer analyse
-composer test
+composer check
 ```

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Make prune limits fail closed, track authoritative ownership per partition,
+  report maintenance locks truthfully across supported Laravel versions, use
+  collision-free doctor probes, validate queue readiness without dispatch, keep
+  disabled dependency resolvers lazy, and redact unsafe operational failures.
+- Add explicit provider-aware source enumeration, bounded sync/queue reindexing, shared maintenance locking, authoritative dry-run-first pruning, read-only status, deterministic doctor diagnostics, typed exit codes, and JSON output.
+- Persist authoritative provider ownership on search documents and include it in semantic hashing and persistence verification.
+- Add release CI across the supported PHP/Laravel matrix plus security, contribution, operations, and release-readiness documentation.
 - Enforce sequential dependency resolver policy lists, accept empty dependency sections as defaults, order cached registrations with binary comparisons, harden resolver diagnostics, and cover the complete dependency-to-queue path.
 - Make lifecycle queue uniqueness provider-aware, isolate every dependency resolver snapshot, cache stable resolver metadata, reject conflicting fallback references, and validate dependency policy consistently during boot.
 - Add dependency-aware source reindexing with detached before/after snapshots, foreign-key movement unions, bounded deterministic fanout, exact dependency-connection commit scheduling, and shared current-state sync/unique-queue routing.

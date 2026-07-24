@@ -515,11 +515,12 @@ final class AtomicSourceIndexingTest extends TestCase
     {
         $reference = new SearchSourceReference('semantic:update:'.$field, 'page', null);
         $original = $this->document($reference, title: 'Original');
+        $persistedOriginal = $original->withProviderKey('atomic-tests');
         PersianSearch::replaceDocumentSet($this->set($reference, [$original]));
-        SearchDocumentRecord::updating(static function (SearchDocumentRecord $record) use ($field, $original): void {
+        SearchDocumentRecord::updating(static function (SearchDocumentRecord $record) use ($field, $persistedOriginal): void {
             if ($field === 'title') {
-                $record->title = $original->title;
-                $record->document_hash = $original->documentHash;
+                $record->title = $persistedOriginal->title;
+                $record->document_hash = $persistedOriginal->documentHash;
 
                 return;
             }
@@ -539,7 +540,7 @@ final class AtomicSourceIndexingTest extends TestCase
         $this->assertDatabaseHas('persian_search_documents', [
             'source_key' => $reference->sourceKey,
             'title' => 'Original',
-            'document_hash' => $original->documentHash,
+            'document_hash' => $persistedOriginal->documentHash,
         ]);
     }
 

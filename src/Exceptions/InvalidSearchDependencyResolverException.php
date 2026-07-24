@@ -3,7 +3,7 @@
 namespace Zarbinco\PersianSearch\Exceptions;
 
 use InvalidArgumentException;
-use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
+use Zarbinco\PersianSearch\Support\SafeDiagnosticValue;
 
 final class InvalidSearchDependencyResolverException extends InvalidArgumentException
 {
@@ -34,10 +34,6 @@ final class InvalidSearchDependencyResolverException extends InvalidArgumentExce
 
     private static function describe(string $value): string
     {
-        if (CanonicalConfigurationName::isValid($value)) {
-            return $value;
-        }
-
-        return 'unsafe-sha256:'.hash('sha256', $value).';bytes='.strlen($value);
+        return SafeDiagnosticValue::describe($value);
     }
 }

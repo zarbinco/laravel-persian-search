@@ -51,12 +51,15 @@ final readonly class SearchDocumentSet implements Countable, IteratorAggregate
             $validated[] = $document;
         }
 
-        return new self($reference, $validated);
+        return new self($reference, $providerKey, $validated);
     }
 
     /** @param list<SearchDocument> $documents */
-    private function __construct(public SearchSourceReference $reference, array $documents)
-    {
+    private function __construct(
+        public SearchSourceReference $reference,
+        public string $providerKey,
+        array $documents,
+    ) {
         $this->documents = $documents;
     }
 
@@ -82,11 +85,12 @@ final readonly class SearchDocumentSet implements Countable, IteratorAggregate
         return new ArrayIterator($this->documents);
     }
 
-    /** @return array{reference: array<string, mixed>, documents: list<array<string, mixed>>} */
+    /** @return array{reference: array<string, mixed>, provider_key: string, documents: list<array<string, mixed>>} */
     public function toArray(): array
     {
         return [
             'reference' => $this->reference->toArray(),
+            'provider_key' => $this->providerKey,
             'documents' => array_map(static fn (SearchDocument $document): array => $document->toArray(), $this->documents),
         ];
     }

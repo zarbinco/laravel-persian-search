@@ -129,7 +129,7 @@ final class EloquentSearchDocumentProviderTest extends TestCase
         ProviderProduct::create(['title' => 'Two', 'brand_id' => $brand->getKey()]);
         Model::preventLazyLoading();
 
-        $command = $this->artisan('persian-search:reindex', ['model' => ProviderProduct::class, '--chunk' => 100]);
+        $command = $this->operationalReindex(ProviderProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
         try {
             $exitCode = $command->execute();
@@ -146,7 +146,7 @@ final class EloquentSearchDocumentProviderTest extends TestCase
         ProviderScopedProduct::create(['title' => 'Visible']);
         ProviderScopedProduct::create(['title' => 'Hidden']);
 
-        $command = $this->artisan('persian-search:reindex', ['model' => ProviderScopedProduct::class]);
+        $command = $this->operationalReindex(ProviderScopedProduct::class);
         $this->assertInstanceOf(PendingCommand::class, $command);
         $this->assertSame(0, $command->execute());
 
