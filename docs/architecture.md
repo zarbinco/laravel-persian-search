@@ -159,11 +159,74 @@ Result processing starts from one immutable ranked window:
 processed query and variants
 → bounded candidate retrieval with truncation evidence
 → professional ranking once
+→ keyboard-family suggestion evaluation
+→ batched exact-locale presentation bridging
+→ presented-document deduplication
 → known-total and optional in-memory facets
 → final slice, page, groups, or two-pass preview selection
-→ batched hydration of selected source IDs
+→ batched hydration of selected presented source IDs
 → immutable public result object
 ```
+
+The processed query locale is also the requested presentation locale.
+Counterpart resolution uses bound search-index queries in deterministic batches
+over unique `partition + source_key` pairs. A counterpart must be active, use
+the exact requested locale, remain in the same partition, and preserve source
+key, source type, and canonical source ID. A type or ID mismatch is an identity
+conflict. No source model is queried during bridging, and exact locale matching
+does not negotiate locale families.
+
+Pair-map keys use a collision-resistant hash of length-prefixed partition and
+source-key values; the original values remain separate SQL bindings. SQL
+equality only bounds possible counterpart rows. Returned locale, partition, and
+source key are compared again with binary PHP `===`, making final identity
+independent of database collation. A collation-only false positive is ignored.
+Two persisted rows for one exact counterpart identity throw a corruption
+exception rather than allowing query order to choose a winner. Identity
+conflicts and duplicate diagnostics render a source-key fingerprint and byte
+length, never the raw source key.
+
+Same-locale candidates need no bridge lookup. With bridging disabled,
+different-locale matches remain visible with `disabled` status. When no active
+exact counterpart exists, the matched document remains visible with
+`counterpart_missing` status. A successful replacement has `bridged` status;
+same-locale presentation has `not_required` status. Rank and winning-variant
+evidence always remain those of the matched document.
+
+If several matches present the same persisted document, post-bridge
+deduplication retains the better semantic rank and keeps the first occurrence
+for an equal rank. Window totals, locale/type/partition facets, pagination,
+preview diversity, group counts, and hydration all consume this deduplicated
+presented window. Candidate-window exactness remains inherited from retrieval;
+bridging and deduplication do not invent a truncation reason.
+
+Suggestion evaluation runs once over ranked pre-bridge candidates and performs
+no SQL or source hydration. The original variant and its synonym descendants
+form the original family. Each direct keyboard variant starts a separate
+keyboard family, and its keyboard-synonym descendants contribute to that
+family. Only a keyboard root can become the visible suggestion.
+
+Universal eligibility requires suggestions to be enabled, the configured
+minimum corrected-family result count, and—by default—an exact candidate
+window. A keyboard family is effective when the original family has zero
+results; or its best semantic tier is strictly better and its distinct result
+count is not lower; or both the configured absolute gain and integer
+basis-point ratio are met. Multiple eligible roots are resolved by rule
+strength, tier, count, gain, variant priority, then fingerprint. The resulting
+immutable evidence contains counts, gain, integer ratio, best tiers, exactness,
+and reason, but no result content.
+
+The complete variant parent graph is validated and family assignments are
+cached before candidate scanning. Missing parents and cycles therefore fail
+even when the malformed variant matched no document. Without a direct keyboard
+root, evaluation returns before document tokenization. Within a candidate,
+several evidence entries for one variant fingerprint trigger one suggestion
+rank evaluation.
+
+Policy constructors enforce the same bounds as their factories, and the
+locale-bridge factory rejects a malformed non-map section. Immutable bridge
+metadata, presented candidates, public results, and suggestion evidence enforce
+status- and reason-specific semantic invariants at construction time.
 
 `SearchResultWindow::knownTotal` is always the number of available rankable
 candidates. It is exact only when per-variant capacity was not exceeded, global
@@ -197,8 +260,10 @@ Group-list completeness is separate from candidate-window exactness.
 describe whether the configured output cap omitted complete source-type groups.
 Omitted groups are never hydrated.
 
-Every search result contains its `SearchDocumentRecord`. Once selection is
-complete, source IDs are batched by Eloquent model class, persisted source
+Every search result contains its presented `SearchDocumentRecord` through both
+`document` and `record`, plus bridge metadata that distinguishes requested,
+matched, and presented locales. Once selection is complete, presented source
+IDs are batched by Eloquent model class, persisted source
 connection, and key name. `source_connection` stores only a validated Laravel
 connection name and participates in semantic hashing and persistence
 verification; it is not part of storage identity or `SearchSourceReference`.
@@ -215,6 +280,8 @@ models.
 
 `SearchResults` exposes its processed query, winning variants, ranked items,
 known total, total exactness, truncation reasons, facets, and applied slice.
+Results, pages, previews, and group collections also expose the same optional
+effective suggestion produced from the complete ranked candidate window.
 Non-searchable queries return an exact empty result without expansion, driver
 access, ranking, SQL, or hydration. One empty-result factory creates results,
 pages, previews, and groups with the configured candidate and result limits,

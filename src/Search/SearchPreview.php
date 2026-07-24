@@ -28,6 +28,7 @@ final readonly class SearchPreview implements Countable, IteratorAggregate, Json
         public bool $isTruncated,
         public SearchFacetCollection $facets,
         array $truncationReasons = [],
+        public ?SearchSuggestion $suggestion = null,
     ) {
         if (! array_is_list($this->items)) {
             throw new InvalidArgumentException('Search preview items must be a list.');
@@ -82,6 +83,7 @@ final readonly class SearchPreview implements Countable, IteratorAggregate, Json
                 $this->truncationReasons,
             ),
             'facets' => $this->facets->toArray(),
+            'suggestion' => $this->suggestion?->toArray(),
             'items' => array_map(static fn (SearchResult $result): array => $result->toArray(), $this->items),
         ];
     }

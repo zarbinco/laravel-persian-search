@@ -4,11 +4,10 @@ namespace Zarbinco\PersianSearch\Search;
 
 use InvalidArgumentException;
 use JsonSerializable;
-use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
 
 final readonly class SearchResultWindow implements JsonSerializable
 {
-    /** @var list<SearchRankedCandidate> */
+    /** @var list<SearchPresentedCandidate> */
     public array $candidates;
 
     /** @var list<SearchResultTruncationReason> */
@@ -33,11 +32,11 @@ final readonly class SearchResultWindow implements JsonSerializable
         $unique = [];
 
         foreach ($candidates as $candidate) {
-            if (! $candidate instanceof SearchRankedCandidate) {
-                throw new InvalidArgumentException('Search result window candidates must be ranked candidates.');
+            if (! $candidate instanceof SearchPresentedCandidate) {
+                throw new InvalidArgumentException('Search result window candidates must be presented candidates.');
             }
 
-            $identity = $candidate->candidate->identity();
+            $identity = $candidate->identity();
 
             if (isset($unique[$identity])) {
                 throw new InvalidArgumentException('Search result window candidate identities must be unique.');
@@ -85,7 +84,7 @@ final readonly class SearchResultWindow implements JsonSerializable
             ),
             'candidate_limit' => $this->candidateLimit,
             'candidates' => array_map(
-                static fn (SearchRankedCandidate $candidate): array => $candidate->toArray(),
+                static fn (SearchPresentedCandidate $candidate): array => $candidate->toArray(),
                 $this->candidates,
             ),
         ];

@@ -66,6 +66,19 @@ return [
         'maximum_groups' => 50,
     ],
 
+    'locale_bridge' => [
+        'enabled' => true,
+        'batch_size' => 200,
+    ],
+
+    'suggestions' => [
+        'enabled' => true,
+        'require_exact_window' => true,
+        'minimum_results' => 1,
+        'minimum_result_gain' => 2,
+        'minimum_ratio_basis_points' => 15000,
+    ],
+
     'query' => [
         'minimum_length' => 2,
         'maximum_length' => 200,

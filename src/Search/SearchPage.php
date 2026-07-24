@@ -18,6 +18,7 @@ final readonly class SearchPage implements Countable, IteratorAggregate, JsonSer
         public ProcessedSearchQuery $processedQuery,
         public QueryVariantCollection $variants,
         public SearchFacetCollection $facets,
+        public ?SearchSuggestion $suggestion = null,
     ) {}
 
     public function count(): int
@@ -39,6 +40,7 @@ final readonly class SearchPage implements Countable, IteratorAggregate, JsonSer
             'processed_query' => $this->processedQuery->toArray(),
             'variants' => $this->variants->toArray(),
             'facets' => $this->facets->toArray(),
+            'suggestion' => $this->suggestion?->toArray(),
             'items' => array_map(static fn (SearchResult $result): array => $result->toArray(), $this->items),
         ];
     }

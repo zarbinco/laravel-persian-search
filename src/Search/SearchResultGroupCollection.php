@@ -23,6 +23,7 @@ final readonly class SearchResultGroupCollection implements Countable, IteratorA
         public bool $groupsAreComplete,
         public bool $isTruncated,
         public int $maximumGroups,
+        public ?SearchSuggestion $suggestion = null,
     ) {
         if (! array_is_list($this->groups)) {
             throw new InvalidArgumentException('Search result groups must be a list.');
@@ -79,6 +80,7 @@ final readonly class SearchResultGroupCollection implements Countable, IteratorA
             'groups_are_complete' => $this->groupsAreComplete,
             'is_truncated' => $this->isTruncated,
             'maximum_groups' => $this->maximumGroups,
+            'suggestion' => $this->suggestion?->toArray(),
             'groups' => array_map(static fn (SearchResultGroup $group): array => $group->toArray(), $this->groups),
         ];
     }

@@ -2,8 +2,6 @@
 
 namespace Zarbinco\PersianSearch\Search;
 
-use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
-
 final class SearchFacetBuilder
 {
     /** @param list<SearchFacetField> $fields */
@@ -40,9 +38,9 @@ final class SearchFacetBuilder
         return new SearchFacetCollection($facets);
     }
 
-    private function value(SearchRankedCandidate $candidate, SearchFacetField $field): string
+    private function value(SearchPresentedCandidate $candidate, SearchFacetField $field): string
     {
-        $document = $candidate->candidate->document;
+        $document = $candidate->presentedDocument;
 
         return match ($field) {
             SearchFacetField::SourceType => $document->source_type,

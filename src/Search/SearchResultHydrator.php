@@ -6,12 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use InvalidArgumentException;
 use LogicException;
-use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
 use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
 
 final class SearchResultHydrator
 {
-    /** @param list<SearchRankedCandidate> $candidates
+    /** @param list<SearchPresentedCandidate> $candidates
      * @return list<SearchResult>
      */
     public function hydrate(array $candidates): array
@@ -19,7 +18,7 @@ final class SearchResultHydrator
         $idsByGroup = [];
 
         foreach ($candidates as $candidate) {
-            $record = $candidate->candidate->document;
+            $record = $candidate->presentedDocument;
 
             if ($record->source_id === null
                 || ! class_exists($record->source_type)
@@ -83,8 +82,8 @@ final class SearchResultHydrator
             }
         }
 
-        return array_map(function (SearchRankedCandidate $candidate) use ($models): SearchResult {
-            $record = $candidate->candidate->document;
+        return array_map(function (SearchPresentedCandidate $candidate) use ($models): SearchResult {
+            $record = $candidate->presentedDocument;
             $model = null;
 
             if ($record->source_id !== null
@@ -109,7 +108,8 @@ final class SearchResultHydrator
             return new SearchResult(
                 $record,
                 $model,
-                $candidate->rank,
+                $candidate->matchedCandidate->rank,
+                $candidate->bridge,
             );
         }, $candidates);
     }

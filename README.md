@@ -323,12 +323,89 @@ $products = Product::persianSearch('كیك شکلاتي')->get();
 while `results()` additionally exposes structured rank metadata. Missing
 Eloquent records do not invalidate document results.
 
-The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type and partition filters. Each query variant is searched using its own exact locale. A corrected English-layout query can therefore return a Persian document directly; localized counterpart resolution is not performed.
+The database driver searches `normalized_title`, `normalized_excerpt`, `normalized_keywords`, and `normalized_content`, ignores inactive documents, and applies source type and partition filters. Each query variant is searched using its own exact locale. A corrected English-layout query can therefore match a Persian document while presenting its exact English counterpart.
 
 Each `SearchResult` exposes its winning structured `rank`. Its
 `matchedVariant`, `candidateSource`, `matchedQuery`, and `matchedLocale`
 properties are derived from the rank's winning variant, so provenance cannot
 contradict ranking.
+
+### Locale presentation bridge and suggestions
+
+The processed query locale is the requested presentation locale. After ranking,
+a matched document in another locale is replaced for display only when an
+active document exists with the exact requested locale and the same partition,
+source key, source type, and source ID. Locale matching is exact: `fa` does not
+fall back to `fa_IR`, and bridging never crosses partitions. A missing or
+inactive counterpart leaves the matched document visible. Counterpart titles
+are not reranked.
+
+The bound SQL query is only a counterpart candidate lookup. Every returned row
+must also pass exact PHP `===` checks for locale, partition, and source key, so
+case-insensitive database collations cannot change bridge identity. Duplicate
+exact rows are treated as index corruption rather than selected by database
+return order. Conflict diagnostics expose a deterministic source-key SHA-256
+fingerprint and byte length instead of the raw source key.
+
+Presented documents are deduplicated before totals, facets, pagination,
+previews, grouping, and hydration. The better matched rank wins; an equal rank
+keeps the first ranked occurrence. Locale facets therefore describe presented
+documents. Only selected presented source models are hydrated.
+
+```php
+$page = PersianSearch::query('\\vjrhg')
+    ->locale('en')
+    ->paginate(
+        perPage: 15,
+        page: 1,
+    );
+
+if ($page->suggestion !== null) {
+    echo $page->suggestion->query;
+}
+
+foreach ($page as $result) {
+    echo $result->document->locale;
+    echo $result->matchedLocale;
+    echo $result->bridge->status->value;
+}
+```
+
+Every result exposes bridge status plus requested, matched, and presented
+locales. `document` and the backward-compatible `record` property both refer to
+the presented search document, while `rank`, `matchedQuery`,
+`candidateSource`, and `matchedLocale` retain matched-document provenance.
+
+Suggestions are evidence-based and limited to direct keyboard-correction
+families. Synonyms descended from a keyboard correction contribute evidence to
+that family, but the visible suggestion remains the direct keyboard-corrected
+query. Original-query synonyms belong to the original family; synonym-only
+matches never create a suggestion. A correction is suggested only when the
+original family has no results, the corrected family has a strictly better
+semantic tier without fewer results, or configured integer result-gain and
+ratio thresholds are met. By default, truncated candidate windows suppress
+suggestions. The same suggestion and structured count/tier evidence are exposed
+by results, pages, previews, and grouped results.
+
+Malformed bridge configuration sections and out-of-range policy construction
+are rejected. Public bridge, presented-candidate, result, and suggestion
+evidence objects also reject status or reason combinations that cannot be
+produced by a valid search execution.
+
+```php
+'locale_bridge' => [
+    'enabled' => true,
+    'batch_size' => 200,
+],
+
+'suggestions' => [
+    'enabled' => true,
+    'require_exact_window' => true,
+    'minimum_results' => 1,
+    'minimum_result_gain' => 2,
+    'minimum_ratio_basis_points' => 15000,
+],
+```
 
 ### Database candidate retrieval
 

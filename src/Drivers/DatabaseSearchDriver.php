@@ -2,16 +2,14 @@
 
 namespace Zarbinco\PersianSearch\Drivers;
 
-use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicy;
-use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
-use Zarbinco\PersianSearch\Contracts\SearchRanker;
 use Zarbinco\PersianSearch\Exceptions\SearchResultWindowExceededException;
-use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
+use Zarbinco\PersianSearch\Search\SearchExecutionProcessor;
 use Zarbinco\PersianSearch\Search\SearchFacetBuilder;
 use Zarbinco\PersianSearch\Search\SearchPage;
 use Zarbinco\PersianSearch\Search\SearchPageMetadata;
 use Zarbinco\PersianSearch\Search\SearchPaginationRequest;
+use Zarbinco\PersianSearch\Search\SearchPresentedCandidate;
 use Zarbinco\PersianSearch\Search\SearchPreview;
 use Zarbinco\PersianSearch\Search\SearchQuery;
 use Zarbinco\PersianSearch\Search\SearchResultGroup;
@@ -20,14 +18,11 @@ use Zarbinco\PersianSearch\Search\SearchResultHydrator;
 use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Search\SearchResults;
 use Zarbinco\PersianSearch\Search\SearchResultSlice;
-use Zarbinco\PersianSearch\Search\SearchResultWindow;
 
 final readonly class DatabaseSearchDriver implements SearchDriver
 {
     public function __construct(
-        private SearchRanker $ranker,
-        private SearchCandidateDriver $candidates,
-        private SearchCandidatePolicy $candidatePolicy,
+        private SearchExecutionProcessor $execution,
         private SearchResultPolicy $resultPolicy,
         private SearchFacetBuilder $facets,
         private SearchResultHydrator $hydrator,
@@ -35,7 +30,8 @@ final readonly class DatabaseSearchDriver implements SearchDriver
 
     public function search(SearchQuery $query): SearchResults
     {
-        $window = $this->window($query);
+        $context = $this->execution->process($query);
+        $window = $context->window;
         $facets = $this->facets->build($window, $query->facetFields);
         $slice = SearchResultSlice::fromWindow($window, $query->offset, $query->limit);
 
@@ -46,12 +42,14 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $facets,
             $slice->offset,
             $slice->limit,
+            $context->suggestion,
         );
     }
 
     public function paginate(SearchQuery $query, SearchPaginationRequest $request): SearchPage
     {
-        $window = $this->window($query);
+        $context = $this->execution->process($query);
+        $window = $context->window;
 
         if ($window->isTruncated() && $request->offset >= $window->knownTotal()) {
             throw SearchResultWindowExceededException::forPage(
@@ -81,17 +79,19 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $query->processedQuery,
             $query->variants(),
             $facets,
+            $context->suggestion,
         );
     }
 
     public function preview(SearchQuery $query, int $limit, int $perType): SearchPreview
     {
-        $window = $this->window($query);
+        $context = $this->execution->process($query);
+        $window = $context->window;
         $selected = [];
         $typeCounts = [];
 
         foreach ($window->candidates as $index => $candidate) {
-            $type = $candidate->candidate->document->source_type;
+            $type = $candidate->presentedDocument->source_type;
 
             if (($typeCounts[$type] ?? 0) < $perType) {
                 $selected[$index] = $candidate;
@@ -125,16 +125,18 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $window->isTruncated(),
             $facets,
             $window->truncationReasons,
+            $context->suggestion,
         );
     }
 
     public function groupBySourceType(SearchQuery $query, int $perGroupLimit): SearchResultGroupCollection
     {
-        $window = $this->window($query);
+        $context = $this->execution->process($query);
+        $window = $context->window;
         $grouped = [];
 
         foreach ($window->candidates as $index => $candidate) {
-            $type = $candidate->candidate->document->source_type;
+            $type = $candidate->presentedDocument->source_type;
 
             if (! isset($grouped[$type])) {
                 $grouped[$type] = ['type' => $type, 'first' => $index, 'count' => 0, 'candidates' => []];
@@ -156,7 +158,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
 
         foreach ($grouped as $group) {
             foreach ($group['candidates'] as $candidate) {
-                $selected[$candidate->candidate->identity()] = $candidate;
+                $selected[$candidate->identity()] = $candidate;
             }
         }
 
@@ -164,14 +166,14 @@ final readonly class DatabaseSearchDriver implements SearchDriver
         $results = [];
 
         foreach ($hydrated as $result) {
-            $results[$result->record->getKey()] = $result;
+            $results[(string) $result->record->getKey()] = $result;
         }
 
         $groups = [];
 
         foreach ($grouped as $type => $group) {
             $items = array_map(
-                static fn (SearchRankedCandidate $candidate) => $results[$candidate->candidate->identity()],
+                static fn (SearchPresentedCandidate $candidate) => $results[$candidate->identity()],
                 $group['candidates'],
             );
             $groups[] = new SearchResultGroup($type, $group['count'], $window->totalIsExact(), $items);
@@ -187,22 +189,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $returnedGroups === $knownGroupTotal,
             $returnedGroups !== $knownGroupTotal,
             $this->resultPolicy->maximumGroups,
-        );
-    }
-
-    private function window(SearchQuery $query): SearchResultWindow
-    {
-        if ($query->isEmpty()) {
-            return new SearchResultWindow([], [], $this->candidatePolicy->maximumCandidates);
-        }
-
-        $retrieval = $this->candidates->candidates($query);
-        $ranked = $this->ranker->rank($retrieval->candidates);
-
-        return new SearchResultWindow(
-            $ranked->all(),
-            $retrieval->truncationReasons,
-            $retrieval->candidateLimit,
+            $context->suggestion,
         );
     }
 }

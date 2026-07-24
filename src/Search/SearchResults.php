@@ -44,6 +44,7 @@ final readonly class SearchResults implements Countable, IteratorAggregate, Json
         public SearchFacetCollection $facets,
         public int $offset,
         public int $limit,
+        public ?SearchSuggestion $suggestion = null,
     ) {
         foreach ($items as $item) {
             if (! $item instanceof SearchResult) {
@@ -128,6 +129,7 @@ final readonly class SearchResults implements Countable, IteratorAggregate, Json
             'limit' => $this->limit,
             'is_truncated' => $this->isTruncated,
             'candidate_limit' => $this->candidateLimit,
+            'suggestion' => $this->suggestion?->toArray(),
             'truncation_reasons' => array_map(
                 static fn (SearchResultTruncationReason $reason): string => $reason->value,
                 $this->truncationReasons,

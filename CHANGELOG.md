@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Verify locale-counterpart rows with exact PHP locale/partition/source-key comparisons after bound SQL lookup, independent of database collation.
+- Reject duplicate exact counterparts, redact raw source keys from conflict diagnostics, and centralize collision-safe pair identities.
+- Enforce policy-constructor bounds plus bridge configuration shape, reason-specific suggestion evidence, presented status semantics, and result/bridge locale consistency.
+- Validate and cache the complete variant-family graph before candidate work, short-circuit searches without keyboard roots, and evaluate each candidate/variant pair once.
+- Add batched exact-locale presentation bridging with strict source identity, active-counterpart fallback, deterministic post-bridge deduplication, and result provenance metadata.
+- Evaluate evidence-based keyboard-correction suggestions before presentation bridging, including keyboard-synonym lineage, integer effectiveness thresholds, and exact-window safeguards.
+- Share one retrieval, ranking, suggestion, and bridge execution pipeline across results, pagination, previews, and source-type groups.
+- Count totals and facets, slice pages, diversify previews, group, and hydrate against deduplicated presented documents while preserving matched rank evidence.
 - Persist the validated Laravel source-connection name as semantic search-document data and hydrate selected Eloquent results from that exact connection.
 - Prevent same-class and same-key hydration collisions across source databases by batching and mapping on connection plus model key name.
 - Centralize exact empty outputs so every non-searchable public search surface skips expansion, drivers, ranking, hydration, and SQL while reporting configured limits consistently.

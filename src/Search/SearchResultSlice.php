@@ -4,16 +4,15 @@ namespace Zarbinco\PersianSearch\Search;
 
 use InvalidArgumentException;
 use JsonSerializable;
-use Zarbinco\PersianSearch\Ranking\SearchRankedCandidate;
 
 final readonly class SearchResultSlice implements JsonSerializable
 {
-    /** @var list<SearchRankedCandidate> */
+    /** @var list<SearchPresentedCandidate> */
     public array $candidates;
 
     public int $returned;
 
-    /** @param array<int, SearchRankedCandidate> $candidates */
+    /** @param array<int, SearchPresentedCandidate> $candidates */
     public function __construct(array $candidates, public int $offset, public int $limit)
     {
         if ($this->offset < 0 || $this->limit < 1) {
@@ -42,7 +41,7 @@ final readonly class SearchResultSlice implements JsonSerializable
             'limit' => $this->limit,
             'returned' => $this->returned(),
             'candidate_ids' => array_map(
-                static fn (SearchRankedCandidate $candidate): string => $candidate->candidate->identity(),
+                static fn (SearchPresentedCandidate $candidate): string => $candidate->identity(),
                 $this->candidates,
             ),
         ];

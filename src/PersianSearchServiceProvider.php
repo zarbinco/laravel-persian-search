@@ -56,13 +56,21 @@ use Zarbinco\PersianSearch\Ranking\ProfessionalSearchRanker;
 use Zarbinco\PersianSearch\Ranking\SearchRankingPolicy;
 use Zarbinco\PersianSearch\Ranking\SearchRankingPolicyFactory;
 use Zarbinco\PersianSearch\Ranking\SearchRankMatcher;
+use Zarbinco\PersianSearch\Search\EffectiveSearchSuggestionEvaluator;
 use Zarbinco\PersianSearch\Search\EmptySearchResultFactory;
+use Zarbinco\PersianSearch\Search\SearchExecutionProcessor;
 use Zarbinco\PersianSearch\Search\SearchFacetBuilder;
+use Zarbinco\PersianSearch\Search\SearchLocaleBridge;
+use Zarbinco\PersianSearch\Search\SearchLocaleBridgePolicy;
+use Zarbinco\PersianSearch\Search\SearchLocaleBridgePolicyFactory;
+use Zarbinco\PersianSearch\Search\SearchLocaleCounterpartLookup;
 use Zarbinco\PersianSearch\Search\SearchQueryPolicy;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Search\SearchResultHydrator;
 use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Search\SearchResultPolicyFactory;
+use Zarbinco\PersianSearch\Search\SearchSuggestionPolicy;
+use Zarbinco\PersianSearch\Search\SearchSuggestionPolicyFactory;
 use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
 use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
 use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
@@ -128,6 +136,18 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(SearchFacetBuilder::class, SearchFacetBuilder::class);
         $this->app->singleton(SearchResultHydrator::class, SearchResultHydrator::class);
         $this->app->singleton(EmptySearchResultFactory::class, EmptySearchResultFactory::class);
+        $this->app->singleton(SearchLocaleBridgePolicyFactory::class, SearchLocaleBridgePolicyFactory::class);
+        $this->app->singleton(SearchLocaleBridgePolicy::class, function ($app): SearchLocaleBridgePolicy {
+            return $app->make(SearchLocaleBridgePolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchSuggestionPolicyFactory::class, SearchSuggestionPolicyFactory::class);
+        $this->app->singleton(SearchSuggestionPolicy::class, function ($app): SearchSuggestionPolicy {
+            return $app->make(SearchSuggestionPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SearchLocaleBridge::class, SearchLocaleBridge::class);
+        $this->app->singleton(SearchLocaleCounterpartLookup::class, SearchLocaleCounterpartLookup::class);
+        $this->app->singleton(EffectiveSearchSuggestionEvaluator::class, EffectiveSearchSuggestionEvaluator::class);
+        $this->app->singleton(SearchExecutionProcessor::class, SearchExecutionProcessor::class);
 
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
@@ -195,9 +215,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $this->app->singleton(DatabaseSearchDriver::class, function ($app): DatabaseSearchDriver {
             return new DatabaseSearchDriver(
-                $app->make(SearchRanker::class),
-                $app->make(SearchCandidateDriver::class),
-                $app->make(SearchCandidatePolicy::class),
+                $app->make(SearchExecutionProcessor::class),
                 $app->make(SearchResultPolicy::class),
                 $app->make(SearchFacetBuilder::class),
                 $app->make(SearchResultHydrator::class),
