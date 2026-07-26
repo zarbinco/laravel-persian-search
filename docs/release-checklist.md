@@ -6,6 +6,8 @@
   within Laravel 13; Laravel 11 and earlier are not supported.
 - Start from a clean working tree and review the intended version and
   `CHANGELOG.md`.
+- Review `ROADMAP.md` and confirm completed, planned, non-goal, support, and
+  release-line statements match the code and tested matrix.
 - Run `composer validate --strict`, `composer dump-autoload --optimize --strict-psr`,
   `composer audit`, and `composer check`.
 - Confirm both lockless highest and lowest-secure CI jobs are green: Laravel 12

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a maintainer roadmap that separates the intended `v1.1.0` baseline from
+  deferred transliteration, mixed-language composition, performance hardening,
+  database certification, and research work.
 - Add opt-in multilingual real-word contextual correction for valid dictionary
   terms using bounded symmetric-delete/phonetic candidates, unigram and bigram
   evidence, capped eligible-result comparisons, deterministic confidence and

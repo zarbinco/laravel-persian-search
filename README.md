@@ -32,6 +32,15 @@ Implemented behavior includes:
 Reindex and prune use configured source enumerators rather than class scanning,
 and both expose deterministic human-readable and JSON reports.
 
+## Roadmap
+
+The approved spelling, phonetic, split/merge, multi-token, and contextual
+correction baseline is intended for the `v1.1.0` release line. Transliteration,
+mixed-script/mixed-language composition, large-scale engine hardening, and
+multi-database release certification remain future work. See
+[ROADMAP.md](ROADMAP.md) for scope boundaries, non-goals, risks, and acceptance
+criteria; roadmap capabilities are not currently implemented.
+
 ## Installation
 
 ```bash

@@ -6,6 +6,10 @@ within Laravel 13. Laravel 11 and earlier are not supported.
 
 The index is document-first. A source produces one or more independently stored search documents; a document does not require an Eloquent model.
 
+Future transliteration, mixed-language composition, global work budgets, and
+database certification are design-only roadmap items. They are not part of the
+current architecture or public API; see [the package roadmap](../ROADMAP.md).
+
 ## Identity
 
 The unique storage identity is `partition + source_key + locale`.
