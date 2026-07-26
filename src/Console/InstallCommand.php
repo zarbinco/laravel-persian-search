@@ -21,7 +21,8 @@ final class InstallCommand extends Command
         ]);
 
         $this->components->info('Persian search assets published successfully.');
-        $this->line('Next step: php artisan migrate');
+        $this->line('Next steps: php artisan migrate');
+        $this->line('Optional spelling: php artisan persian-search:dictionary-build --force, then enable PERSIAN_SEARCH_SPELLING_ENABLED=true');
 
         return self::SUCCESS;
     }

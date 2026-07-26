@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch\Search;
 use InvalidArgumentException;
 use Zarbinco\PersianSearch\Query\KeyboardCorrection;
 use Zarbinco\PersianSearch\Query\SynonymExpansion;
+use Zarbinco\PersianSearch\Spelling\SpellingCorrection;
 
 final readonly class QueryVariant
 {
@@ -28,6 +29,7 @@ final readonly class QueryVariant
         public ?string $parentFingerprint = null,
         public ?KeyboardCorrection $keyboardCorrection = null,
         array $appliedSynonyms = [],
+        public ?SpellingCorrection $spellingCorrection = null,
     ) {
         if ($this->query === '') {
             throw new InvalidArgumentException('Query variant text must not be empty.');
@@ -91,6 +93,7 @@ final readonly class QueryVariant
             'fingerprint' => $this->fingerprint,
             'parent_fingerprint' => $this->parentFingerprint,
             'keyboard_correction' => $this->keyboardCorrection?->toArray(),
+            'spelling_correction' => $this->spellingCorrection?->toArray(),
             'applied_synonyms' => array_map(
                 static fn (SynonymExpansion $expansion): array => $expansion->toArray(),
                 $this->appliedSynonyms,

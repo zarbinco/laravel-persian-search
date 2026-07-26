@@ -30,6 +30,8 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertNull(config('persian-search.database.max_tokens'));
         $this->assertNull(config('persian-search.keyboard.fa_to_en'));
         $this->assertSame(20, config('persian-search.variants.maximum_variants'));
+        $this->assertFalse(config('persian-search.spelling.enabled'));
+        $this->assertSame(2, config('persian-search.spelling.correction.maximum_edit_distance'));
         $packageConfig = require __DIR__.'/../../config/persian-search.php';
         $this->assertSame('fa', $packageConfig['keyboard']['en_to_fa']['target_locale']);
         $this->assertSame(2, config('persian-search.query.minimum_length'));
@@ -56,6 +58,27 @@ final class PersianSearchFoundationTest extends TestCase
 
         $this->assertSame($expected, $manager->normalize($value, 'fa'));
         $this->assertSame($expected, PersianSearch::normalize($value, 'fa'));
+    }
+
+    public function test_manager_constructor_keeps_its_existing_dependencies_backward_compatible(): void
+    {
+        $constructor = new \ReflectionMethod(PersianSearchManager::class, '__construct');
+        $parameters = $constructor->getParameters();
+
+        $this->assertSame(9, $constructor->getNumberOfRequiredParameters());
+        $this->assertSame([
+            'pipeline',
+            'queryProcessorResolver',
+            'builder',
+            'indexManager',
+            'driver',
+            'expander',
+            'providers',
+            'resultPolicy',
+            'emptyResults',
+        ], array_map(static fn (\ReflectionParameter $parameter): string => $parameter->getName(), array_slice($parameters, 0, 9)));
+        $this->assertSame('spelling', $parameters[9]->getName());
+        $this->assertTrue($parameters[9]->isOptional());
     }
 
     public function test_manager_and_facade_delegate_tokenization_to_persian_core(): void

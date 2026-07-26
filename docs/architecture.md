@@ -43,7 +43,7 @@ Persian-family locales (`fa`, including underscore and hyphen region forms) dele
 
 The tokenizer retains Unicode letters, combining marks, and numbers. It keeps apostrophes inside words, splits hyphenated words and decimals at punctuation, excludes punctuation as tokens, and removes duplicates while preserving first appearance. It applies no stop words, stemming, minimum token length, or token-count limit.
 
-The pipeline depends on the replaceable `SearchTextSanitizer`, `SearchTextNormalizer`, and `SearchTokenizer` contracts registered by the service provider. Document building and generated keyboard and synonym variants use this preparation path; an original variant reuses its already-approved processed query without normalizing it again.
+The pipeline depends on the replaceable `SearchTextSanitizer`, `SearchTextNormalizer`, and `SearchTokenizer` contracts registered by the service provider. Document building and generated keyboard, spelling, and synonym variants use this preparation path; an original variant reuses its already-approved processed query without normalizing it again.
 
 ## Query processing
 
@@ -66,15 +66,38 @@ raw query → strict string conversion → maximum-length policy → text pipeli
 
 The default policy requires two normalized Unicode code points, accepts at most 200 raw code points, permits tokens of one or more code points, keeps the first 20 eligible tokens, and truncates excessive input. The alternative maximum policy rejects excessive input. Lengths are Unicode code-point counts, not byte or grapheme-cluster counts. All policy values are typed and validated when query processing is first resolved.
 
-The complete tokenizer output remains in `tokens`. `searchableTokens` removes short tokens and applies the maximum token count without mutating the complete list. It does not apply stop words, stemming, synonyms, or keyboard correction.
+The complete tokenizer output remains in `tokens`. `searchableTokens` removes short tokens and applies the maximum token count without mutating the complete list. It does not apply stop words, stemming, synonyms, keyboard correction, or spelling correction.
 
 Fluent query processing is lazy, so the final effective locale is authoritative and repeated execution has no stale processed state. A null builder locale uses the application locale; an explicitly empty or whitespace-only locale resolves to `und`; and a non-empty explicit locale is retained. Non-ready queries are converted directly to empty `SearchResults` by the builder: expansion, driver access, ranking, search-document SQL, and model hydration are skipped.
 
 ## Query variants
 
-`QueryExpander` accepts only a ready `ProcessedSearchQuery` and returns a bounded `QueryVariantCollection`. Generation order and default precedence are original (`1000`), keyboard (`800`), synonym (`600`), and keyboard-synonym (`400`). Each immutable variant carries normalized query text, ordered unique searchable tokens, locale, source enum, priority, deterministic fingerprint, parent fingerprint, and typed correction or synonym provenance.
+`QueryExpander` accepts only a ready `ProcessedSearchQuery` and returns a bounded `QueryVariantCollection`. Generation order and default precedence are original (`1000`), keyboard (`800`), spelling (`700`), keyboard-spelling (`650`), synonym (`600`), and keyboard-synonym (`400`). Each immutable variant carries normalized query text, ordered searchable tokens, locale, source enum, priority, deterministic fingerprint, parent fingerprint, and typed keyboard, spelling, or synonym provenance.
 
 The collection deduplicates by fingerprint and by normalized query plus locale. Higher priority replaces lower provenance, equal priority keeps the first occurrence, different locales stay distinct, and the original can never be displaced by generated provenance. The original counts toward `maximum_variants`; generation stops at the bound without recursive synonym expansion or synonym Cartesian products. Synonym expansion returns a fresh lazy generator for each call. The expander does not invoke it when earlier variants already fill the collection and stops consuming it immediately after the final available slot, so the bound limits generated work as well as retained output.
+
+### Spelling layer
+
+The optional spelling layer is document-derived and multilingual. Active search
+documents are tokenized per exact locale into a bounded dictionary. Each term
+stores document and field frequencies; a second table stores deterministic
+symmetric-delete keys up to the configured edit distance. Dictionary creation
+is explicit operational work under the shared maintenance lock, while status is
+read-only and reports table readiness, locale counts, last build time, and
+staleness against the newest active document.
+
+At query time an exact dictionary hit stops correction for that token. A miss
+produces bounded delete keys, batches all inspected tokens into one indexed
+locale lookup, verifies the small candidate window using weighted Unicode Damerau-Levenshtein distance, and
+uses a deterministic beam to construct a limited number of whole-query
+corrections. The core insertion/deletion/substitution/transposition algorithm is
+locale-independent; optional adjacent-key maps only lower substitution cost for
+known layouts. No full-table edit-distance query is executed.
+
+Spelling is fail-soft by default when its tables are unavailable and can be
+configured to fail closed for deployments that require the dictionary. It is
+disabled by default so upgrading the package without publishing/building the
+new dictionary cannot alter an existing application's search behavior.
 
 English-to-Persian is the only keyboard direction. English-family input uses one authoritative Windows Persian keyboard map, including backslash to `پ`. Base and Shift states are mapped case-sensitively, including uppercase letters, shifted punctuation, and multi-character output such as `R → ریال`. The already-sanitized physical input is retained for correction before English normalization can collapse Shift state. A generic configured `en` source accepts English region locales; a configured region locale is exact. Corrected output is prepared with the configured Persian target locale. No reverse layout correction or transliteration is claimed.
 
@@ -163,7 +186,7 @@ Result processing starts from one immutable ranked window:
 processed query and variants
 → bounded candidate retrieval with truncation evidence
 → professional ranking once
-→ keyboard-family suggestion evaluation
+→ correction-family suggestion evaluation
 → batched exact-locale presentation bridging
 → presented-document deduplication
 → known-total and optional in-memory facets
@@ -206,13 +229,11 @@ bridging and deduplication do not invent a truncation reason.
 
 Suggestion evaluation runs once over ranked pre-bridge candidates and performs
 no SQL or source hydration. The original variant and its synonym descendants
-form the original family. Each direct keyboard variant starts a separate
-keyboard family, and its keyboard-synonym descendants contribute to that
-family. Only a keyboard root can become the visible suggestion.
+form the original family. Each direct keyboard, spelling, or keyboard-spelling variant starts a separate correction family. Keyboard-synonym descendants contribute to their keyboard family. Only a direct correction root can become the visible suggestion.
 
 Universal eligibility requires suggestions to be enabled, the configured
 minimum corrected-family result count, and—by default—an exact candidate
-window. A keyboard family is effective when the original family has zero
+window. A correction family is effective when the original family has zero
 results; or its best semantic tier is strictly better and its distinct result
 count is not lower; or both the configured absolute gain and integer
 basis-point ratio are met. Multiple eligible roots are resolved by rule
@@ -222,7 +243,7 @@ and reason, but no result content.
 
 The complete variant parent graph is validated and family assignments are
 cached before candidate scanning. Missing parents and cycles therefore fail
-even when the malformed variant matched no document. Without a direct keyboard
+even when the malformed variant matched no document. Without a direct correction
 root, evaluation returns before document tokenization. Within a candidate,
 several evidence entries for one variant fingerprint trigger one suggestion
 rank evaluation.

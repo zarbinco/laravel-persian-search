@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Facade;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
@@ -49,6 +50,8 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static QueryExpander queryExpander()
  * @method static \Zarbinco\PersianSearch\Search\QueryVariantCollection expandQuery(\Zarbinco\PersianSearch\Search\ProcessedSearchQuery $query)
  * @method static SearchDriver driver()
+ * @method static SpellingCorrector|null spellingCorrector()
+ * @method static \Zarbinco\PersianSearch\Spelling\SpellingCorrectionCollection spellingCorrections(\Zarbinco\PersianSearch\Search\ProcessedSearchQuery $query)
  */
 final class PersianSearch extends Facade
 {

@@ -16,7 +16,7 @@ final readonly class SearchSuggestion implements JsonSerializable
         public SearchSuggestionEvidence $evidence,
     ) {
         if ($this->query === '' || ! CanonicalConfigurationName::isValid($this->locale)
-            || $this->source !== QueryVariantSource::Keyboard || $this->variantFingerprint === '') {
+            || ! $this->source->isSuggestionRoot() || $this->variantFingerprint === '') {
             throw new InvalidArgumentException('Search suggestion metadata is invalid.');
         }
     }

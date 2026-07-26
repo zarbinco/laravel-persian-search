@@ -34,6 +34,24 @@ final class QueryVariantTest extends TestCase
         $this->assertSame($first, $collection->all()[0]);
     }
 
+    public function test_existing_positional_applied_synonyms_argument_remains_backward_compatible(): void
+    {
+        $variant = new QueryVariant(
+            'orange',
+            'en',
+            ['orange'],
+            QueryVariantSource::Original,
+            1000,
+            'fingerprint',
+            null,
+            null,
+            [],
+        );
+
+        $this->assertSame([], $variant->appliedSynonyms);
+        $this->assertNull($variant->spellingCorrection);
+    }
+
     public function test_collection_rejects_non_positive_limit(): void
     {
         $this->expectException(InvalidArgumentException::class);

@@ -18,10 +18,14 @@ final class FreshInstallPackageTest extends TestCase
 
         $migration = require __DIR__.'/../../database/migrations/create_persian_search_documents_table.php';
         $migration->up();
+        $dictionaryMigration = require __DIR__.'/../../database/migrations/create_persian_search_dictionary_tables.php';
+        $dictionaryMigration->up();
         $this->assertTrue(Schema::hasTable('persian_search_documents'));
         $this->assertTrue(Schema::hasColumns('persian_search_documents', [
             'provider_key', 'source_connection', 'document_hash',
         ]));
+        $this->assertTrue(Schema::hasTable('persian_search_dictionary_terms'));
+        $this->assertTrue(Schema::hasTable('persian_search_dictionary_deletes'));
 
         $commands = Artisan::all();
         foreach ([
@@ -29,6 +33,8 @@ final class FreshInstallPackageTest extends TestCase
             'persian-search:prune',
             'persian-search:status',
             'persian-search:doctor',
+            'persian-search:dictionary-build',
+            'persian-search:dictionary-status',
         ] as $name) {
             $this->assertArrayHasKey($name, $commands);
         }

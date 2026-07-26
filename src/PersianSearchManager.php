@@ -8,6 +8,7 @@ use Throwable;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
+use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
@@ -23,6 +24,7 @@ use Zarbinco\PersianSearch\Search\QueryVariantCollection;
 use Zarbinco\PersianSearch\Search\SearchQueryBuilder;
 use Zarbinco\PersianSearch\Search\SearchQueryProcessor;
 use Zarbinco\PersianSearch\Search\SearchResultPolicy;
+use Zarbinco\PersianSearch\Spelling\SpellingCorrectionCollection;
 use Zarbinco\PersianSearch\Text\PreparedSearchText;
 use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
@@ -41,6 +43,7 @@ final class PersianSearchManager
         private readonly SearchDocumentProviderRegistry $providers,
         private readonly SearchResultPolicy $resultPolicy,
         private readonly EmptySearchResultFactory $emptyResults,
+        private readonly ?SpellingCorrector $spelling = null,
     ) {}
 
     public function textPipeline(): SearchTextPipeline
@@ -66,6 +69,20 @@ final class PersianSearchManager
     public function queryExpander(): QueryExpander
     {
         return $this->expander;
+    }
+
+    public function spellingCorrector(): ?SpellingCorrector
+    {
+        return $this->spelling;
+    }
+
+    public function spellingCorrections(ProcessedSearchQuery $query): SpellingCorrectionCollection
+    {
+        $original = $this->expander->original($query)->original();
+
+        return $original === null || $this->spelling === null
+            ? new SpellingCorrectionCollection(1)
+            : $this->spelling->correct($original);
     }
 
     public function queryProcessor(): SearchQueryProcessor

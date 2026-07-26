@@ -1,8 +1,9 @@
 {
     "name": "zarbinco/laravel-persian-search",
-    "description": "Persian-aware search indexing, query expansion, wrong-keyboard typing correction, and relevance tools for Laravel, powered by laravel-persian-core.",
+    "description": "Persian-aware document search, multilingual typo correction, query expansion, indexing, and relevance tools for Laravel.",
     "type": "library",
     "keywords": [
+        "did-you-mean",
         "eloquent",
         "farsi",
         "farsi-search",
@@ -13,7 +14,9 @@
         "persian",
         "persian-search",
         "query-expansion",
-        "search"
+        "search",
+        "spelling-correction",
+        "typo-tolerance"
     ],
     "homepage": "https://github.com/zarbinco/laravel-persian-search",
     "license": "MIT",

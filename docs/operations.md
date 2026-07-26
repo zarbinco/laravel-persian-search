@@ -209,3 +209,35 @@ queued jobs may suppress duplicate work. Source or dependency changes can
 occur while jobs are pending; current-state reload provides convergence.
 There is no outbox, distributed transaction, automatic provider enumeration,
 or recursive dependency graph.
+
+
+## Multilingual spelling dictionary
+
+The typo-correction dictionary is derived from active search-index documents;
+there is no manual database import.
+
+```bash
+php artisan persian-search:dictionary-build --force
+php artisan persian-search:dictionary-build --locale=fa --force
+php artisan persian-search:dictionary-status
+php artisan persian-search:dictionary-status --json
+```
+
+A full build replaces all dictionary locales atomically on the configured
+spelling/index connection. A locale-filtered build replaces only those exact
+locales. The build shares the package maintenance lock with reindex and prune,
+scans documents in bounded chunks, fails before exceeding the configured term
+limit, and inserts terms/delete keys in batches. It never mutates search
+documents.
+
+Run a build after the initial `persian-search:reindex`, after bulk content
+changes, or when status reports `stale`. For queued source reindexing, wait for
+the search queue to drain before rebuilding. Ordinary source lifecycle jobs do
+not rebuild the whole dictionary.
+
+Runtime correction performs one exact-term lookup and at most one batched
+candidate lookup only when spelling is enabled and a query token is not already
+an exact dictionary term. If the tables are missing,
+`fail_when_unavailable=false` keeps normal search available without typo
+variants; set it to `true` when missing dictionary infrastructure must fail
+closed.

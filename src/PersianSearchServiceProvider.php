@@ -12,6 +12,8 @@ use Zarbinco\PersianSearch\Candidates\SearchCandidateMatcher;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePlanBuilder;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicy;
 use Zarbinco\PersianSearch\Candidates\SearchCandidatePolicyFactory;
+use Zarbinco\PersianSearch\Console\DictionaryBuildCommand;
+use Zarbinco\PersianSearch\Console\DictionaryStatusCommand;
 use Zarbinco\PersianSearch\Console\DoctorCommand;
 use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\PruneCommand;
@@ -27,6 +29,7 @@ use Zarbinco\PersianSearch\Contracts\SearchRanker;
 use Zarbinco\PersianSearch\Contracts\SearchTextNormalizer;
 use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
+use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
 use Zarbinco\PersianSearch\Dependencies\SearchDependencyDispatcher;
 use Zarbinco\PersianSearch\Dependencies\SearchDependencyObserver;
@@ -93,6 +96,13 @@ use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Search\SearchResultPolicyFactory;
 use Zarbinco\PersianSearch\Search\SearchSuggestionPolicy;
 use Zarbinco\PersianSearch\Search\SearchSuggestionPolicyFactory;
+use Zarbinco\PersianSearch\Spelling\DatabaseSpellingCorrector;
+use Zarbinco\PersianSearch\Spelling\SpellingDictionaryBuilder;
+use Zarbinco\PersianSearch\Spelling\SpellingDictionaryStatusService;
+use Zarbinco\PersianSearch\Spelling\SpellingPolicy;
+use Zarbinco\PersianSearch\Spelling\SpellingPolicyFactory;
+use Zarbinco\PersianSearch\Spelling\SymmetricDeleteGenerator;
+use Zarbinco\PersianSearch\Spelling\WeightedDamerauLevenshtein;
 use Zarbinco\PersianSearch\Text\DefaultSearchTextSanitizer;
 use Zarbinco\PersianSearch\Text\LocaleAwareSearchTextNormalizer;
 use Zarbinco\PersianSearch\Text\SearchLocaleResolver;
@@ -171,6 +181,17 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->singleton(EffectiveSearchSuggestionEvaluator::class, EffectiveSearchSuggestionEvaluator::class);
         $this->app->singleton(SearchExecutionProcessor::class, SearchExecutionProcessor::class);
 
+        $this->app->singleton(SpellingPolicyFactory::class, SpellingPolicyFactory::class);
+        $this->app->singleton(SpellingPolicy::class, function ($app): SpellingPolicy {
+            return $app->make(SpellingPolicyFactory::class)->make();
+        });
+        $this->app->singleton(SymmetricDeleteGenerator::class, SymmetricDeleteGenerator::class);
+        $this->app->singleton(WeightedDamerauLevenshtein::class, WeightedDamerauLevenshtein::class);
+        $this->app->singleton(DatabaseSpellingCorrector::class, DatabaseSpellingCorrector::class);
+        $this->app->alias(DatabaseSpellingCorrector::class, SpellingCorrector::class);
+        $this->app->singleton(SpellingDictionaryBuilder::class, SpellingDictionaryBuilder::class);
+        $this->app->singleton(SpellingDictionaryStatusService::class, SpellingDictionaryStatusService::class);
+
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
 
@@ -220,6 +241,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(QueryVariantPolicy::class),
                 $app->make(KeyboardLayoutCorrector::class),
                 $app->make(SynonymExpander::class),
+                $app->make(SpellingCorrector::class),
             );
         });
 
@@ -363,6 +385,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchDocumentProviderRegistry::class),
                 $app->make(SearchResultPolicy::class),
                 $app->make(EmptySearchResultFactory::class),
+                $app->make(SpellingCorrector::class),
             );
         });
 
@@ -383,6 +406,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
 
         $migrations = [
             __DIR__.'/../database/migrations/create_persian_search_documents_table.php' => database_path('migrations/create_persian_search_documents_table.php'),
+            __DIR__.'/../database/migrations/create_persian_search_dictionary_tables.php' => database_path('migrations/create_persian_search_dictionary_tables.php'),
         ];
 
         $this->publishesMigrations($migrations, 'persian-search-migrations');
@@ -393,6 +417,8 @@ final class PersianSearchServiceProvider extends ServiceProvider
             PruneCommand::class,
             StatusCommand::class,
             DoctorCommand::class,
+            DictionaryBuildCommand::class,
+            DictionaryStatusCommand::class,
         ]);
     }
 }

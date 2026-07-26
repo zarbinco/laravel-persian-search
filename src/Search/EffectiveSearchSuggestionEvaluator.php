@@ -31,12 +31,12 @@ final readonly class EffectiveSearchSuggestionEvaluator
         }
 
         $familiesByVariant = $this->resolveFamilies($variantMap);
-        $keyboardRoots = array_filter(
+        $suggestionRoots = array_filter(
             $variantMap,
-            static fn (QueryVariant $variant): bool => $variant->source === QueryVariantSource::Keyboard,
+            static fn (QueryVariant $variant): bool => $variant->source->isSuggestionRoot(),
         );
 
-        if ($keyboardRoots === []) {
+        if ($suggestionRoots === []) {
             return null;
         }
 
@@ -77,7 +77,7 @@ final readonly class EffectiveSearchSuggestionEvaluator
         $originalBest = $familyBestRanks['original'] ?? null;
         $eligible = [];
 
-        foreach ($keyboardRoots as $variant) {
+        foreach ($suggestionRoots as $variant) {
             if ($variant->query === $originalQuery) {
                 continue;
             }
@@ -140,7 +140,7 @@ final readonly class EffectiveSearchSuggestionEvaluator
         return $winner === null ? null : new SearchSuggestion(
             $winner['variant']->query,
             $winner['variant']->locale,
-            QueryVariantSource::Keyboard,
+            $winner['variant']->source,
             $winner['variant']->fingerprint,
             $winner['evidence'],
         );
@@ -184,7 +184,7 @@ final readonly class EffectiveSearchSuggestionEvaluator
                     break;
                 }
 
-                if ($current->source === QueryVariantSource::Keyboard) {
+                if ($current->source->isSuggestionRoot()) {
                     $family = $current->fingerprint;
 
                     break;

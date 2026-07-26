@@ -110,6 +110,8 @@ return [
         'priorities' => [
             'original' => 1000,
             'keyboard' => 800,
+            'spelling' => 700,
+            'keyboard_spelling' => 650,
             'synonym' => 600,
             'keyboard_synonym' => 400,
         ],
@@ -129,4 +131,74 @@ return [
             'target_locale' => 'fa',
         ],
     ],
+
+    'spelling' => [
+        // Keep disabled until the dictionary migration is run and the first build completes.
+        'enabled' => env('PERSIAN_SEARCH_SPELLING_ENABLED', false),
+        'connection' => null,
+        'terms_table' => 'persian_search_dictionary_terms',
+        'deletes_table' => 'persian_search_dictionary_deletes',
+        'fail_when_unavailable' => false,
+
+        'dictionary' => [
+            'minimum_token_length' => 4,
+            'maximum_token_length' => 64,
+            'minimum_document_frequency' => 1,
+            'maximum_terms' => 100000,
+            'maximum_deletes_per_term' => 256,
+            'chunk_size' => 500,
+            'insert_batch_size' => 500,
+            'protected_terms' => [
+                '*' => [],
+                // 'fa' => ['سن‌ایچ'],
+                // 'en' => ['sunich'],
+            ],
+        ],
+
+        'correction' => [
+            'maximum_edit_distance' => 2,
+            'two_edit_distance_minimum_length' => 8,
+            'maximum_candidates_per_token' => 5,
+            'maximum_candidate_rows_per_token' => 250,
+            'maximum_candidate_rows_per_query' => 500,
+            'maximum_query_variants' => 5,
+            'maximum_tokens_to_inspect' => 4,
+            'maximum_tokens_to_correct' => 2,
+            'maximum_delete_keys_per_query_token' => 128,
+            'maximum_delete_keys_per_query' => 512,
+            'costs' => [
+                'insertion' => 1000,
+                'deletion' => 1000,
+                'substitution' => 1000,
+                'transposition' => 700,
+                'adjacent_key_substitution' => 450,
+            ],
+        ],
+
+        // Unicode edit distance works for every locale. These optional maps only
+        // make substitutions between neighboring keys cheaper for known layouts.
+        'adjacent_keys' => [
+            'en' => [
+                'q' => ['w'], 'w' => ['q', 'e'], 'e' => ['w', 'r'], 'r' => ['e', 't'],
+                't' => ['r', 'y'], 'y' => ['t', 'u'], 'u' => ['y', 'i'], 'i' => ['u', 'o'],
+                'o' => ['i', 'p'], 'p' => ['o'],
+                'a' => ['s'], 's' => ['a', 'd'], 'd' => ['s', 'f'], 'f' => ['d', 'g'],
+                'g' => ['f', 'h'], 'h' => ['g', 'j'], 'j' => ['h', 'k'], 'k' => ['j', 'l'],
+                'l' => ['k'],
+                'z' => ['x'], 'x' => ['z', 'c'], 'c' => ['x', 'v'], 'v' => ['c', 'b'],
+                'b' => ['v', 'n'], 'n' => ['b', 'm'], 'm' => ['n'],
+            ],
+            'fa' => [
+                'ض' => ['ص'], 'ص' => ['ض', 'ث'], 'ث' => ['ص', 'ق'], 'ق' => ['ث', 'ف'],
+                'ف' => ['ق', 'غ'], 'غ' => ['ف', 'ع'], 'ع' => ['غ', 'ه'], 'ه' => ['ع', 'خ'],
+                'خ' => ['ه', 'ح'], 'ح' => ['خ', 'ج'], 'ج' => ['ح', 'چ'], 'چ' => ['ج'],
+                'ش' => ['س'], 'س' => ['ش', 'ی'], 'ی' => ['س', 'ب'], 'ب' => ['ی', 'ل'],
+                'ل' => ['ب', 'ا'], 'ا' => ['ل', 'ت'], 'ت' => ['ا', 'ن'], 'ن' => ['ت', 'م'],
+                'م' => ['ن', 'ک'], 'ک' => ['م', 'گ'], 'گ' => ['ک'],
+                'ظ' => ['ط'], 'ط' => ['ظ', 'ز'], 'ز' => ['ط', 'ر'], 'ر' => ['ز', 'ذ'],
+                'ذ' => ['ر', 'د'], 'د' => ['ذ', 'پ'], 'پ' => ['د', 'و'], 'و' => ['پ'],
+            ],
+        ],
+    ],
+
 ];

@@ -7,28 +7,19 @@ use Zarbinco\PersianSearch\Search\QueryVariantSource;
 
 final readonly class QueryVariantPolicy
 {
-    /** @param array<string, mixed> $priorities */
+    /** @param  array<string, mixed>  $priorities */
     public static function fromArray(mixed $maximumVariants, array $priorities): self
     {
         if (! is_int($maximumVariants) || $maximumVariants <= 0) {
             throw InvalidQueryVariantConfigurationException::forValue('variants.maximum_variants', $maximumVariants, 'must be greater than zero');
         }
 
-        $values = [];
-
-        foreach (QueryVariantSource::cases() as $source) {
-            $value = $priorities[$source->value] ?? null;
-
-            if (! is_int($value) || $value < 0) {
-                throw InvalidQueryVariantConfigurationException::forValue(
-                    'variants.priorities.'.$source->value,
-                    $value,
-                    'must be an integer zero or greater',
-                );
-            }
-
-            $values[$source->value] = $value;
-        }
+        $values = [
+            'original' => self::configuredPriority($priorities, 'original', 1000),
+            'keyboard' => self::configuredPriority($priorities, 'keyboard', 800),
+            'synonym' => self::configuredPriority($priorities, 'synonym', 600),
+            'keyboard_synonym' => self::configuredPriority($priorities, 'keyboard_synonym', 400),
+        ];
 
         if (! ($values['original'] > $values['keyboard']
             && $values['keyboard'] > $values['synonym']
@@ -36,34 +27,79 @@ final readonly class QueryVariantPolicy
             throw InvalidQueryVariantConfigurationException::forValue(
                 'variants.priorities',
                 $priorities,
-                'must strictly descend from original to keyboard to synonym to keyboard_synonym',
+                'must keep original above keyboard, keyboard above synonym, and synonym above keyboard_synonym',
             );
         }
 
-        return new self(
-            maximumVariants: $maximumVariants,
-            originalPriority: $values['original'],
-            keyboardPriority: $values['keyboard'],
-            synonymPriority: $values['synonym'],
-            keyboardSynonymPriority: $values['keyboard_synonym'],
+        [$compatibleSpelling, $compatibleKeyboardSpelling] = self::compatibleSpellingPriorities(
+            $values['keyboard'],
+            $values['synonym'],
         );
+        $values['spelling'] = self::configuredPriority($priorities, 'spelling', $compatibleSpelling);
+        $values['keyboard_spelling'] = self::configuredPriority(
+            $priorities,
+            'keyboard_spelling',
+            $compatibleKeyboardSpelling,
+        );
+
+        if (! ($values['keyboard'] >= $values['spelling']
+            && $values['spelling'] >= $values['keyboard_spelling']
+            && $values['keyboard_spelling'] >= $values['synonym'])) {
+            throw InvalidQueryVariantConfigurationException::forValue(
+                'variants.priorities',
+                $priorities,
+                'must keep spelling provenance between keyboard and synonym provenance',
+            );
+        }
+
+        return new self($maximumVariants, $values);
     }
 
+    /** @param  array<string, int>  $priorities */
     private function __construct(
         public int $maximumVariants,
-        public int $originalPriority,
-        public int $keyboardPriority,
-        public int $synonymPriority,
-        public int $keyboardSynonymPriority,
+        private array $priorities,
     ) {}
 
     public function priority(QueryVariantSource $source): int
     {
-        return match ($source) {
-            QueryVariantSource::Original => $this->originalPriority,
-            QueryVariantSource::Keyboard => $this->keyboardPriority,
-            QueryVariantSource::Synonym => $this->synonymPriority,
-            QueryVariantSource::KeyboardSynonym => $this->keyboardSynonymPriority,
-        };
+        return $this->priorities[$source->value];
+    }
+
+    /** @param  array<string, mixed>  $priorities */
+    private static function configuredPriority(array $priorities, string $key, int $default): int
+    {
+        $value = $priorities[$key] ?? $default;
+        if (! is_int($value) || $value < 0) {
+            throw InvalidQueryVariantConfigurationException::forValue(
+                'variants.priorities.'.$key,
+                $value,
+                'must be an integer zero or greater',
+            );
+        }
+
+        return $value;
+    }
+
+    /** @return array{int, int} */
+    private static function compatibleSpellingPriorities(int $keyboard, int $synonym): array
+    {
+        if ($keyboard >= 700 && $synonym <= 650) {
+            return [700, 650];
+        }
+
+        $gap = $keyboard - $synonym;
+        if ($gap >= 3) {
+            $keyboardSpelling = $synonym + max(1, intdiv($gap, 3));
+            $spelling = $synonym + max(2, intdiv($gap * 2, 3));
+
+            return [min($keyboard - 1, $spelling), min($spelling - 1, $keyboardSpelling)];
+        }
+
+        if ($gap === 2) {
+            return [$keyboard - 1, $synonym];
+        }
+
+        return [$keyboard, $synonym];
     }
 }

@@ -18,8 +18,8 @@ Laravel 12 with Testbench 10 and Laravel 13 with Testbench 11.
 
 Implemented behavior includes:
 
-- locale-aware Persian text processing, wrong-keyboard correction, and synonym
-  query variants;
+- locale-aware text processing, wrong-keyboard correction, multilingual typo
+  correction, and synonym query variants;
 - validated document providers, atomic indexing, and provider-aware lifecycle
   synchronization;
 - dependency-aware reindexing and exact cross-locale counterpart bridging;
@@ -37,7 +37,10 @@ and both expose deterministic human-readable and JSON reports.
 composer require zarbinco/laravel-persian-search
 php artisan persian-search:install
 php artisan migrate
+php artisan persian-search:dictionary-build --force
 ```
+
+Typo correction remains disabled until `PERSIAN_SEARCH_SPELLING_ENABLED=true` is configured after the first successful dictionary build. No SQL or external word list is imported manually.
 
 The index connection, table, default partition, undefined locale, lifecycle flags, query expansion, limits, and basic ranking settings are configured in `config/persian-search.php`.
 
@@ -96,7 +99,7 @@ Lengths count Unicode code points rather than bytes or visual grapheme clusters.
 
 ## Query variants
 
-Ready processed queries expand deterministically into typed variants: original, English-to-Persian keyboard correction, synonyms from the original, then synonyms from the keyboard variant. The defaults assign priorities `1000`, `800`, `600`, and `400`, respectively, and keep at most 20 distinct query-locale pairs. Priority selects provenance when variants collide; it is not a document-score multiplier.
+Ready processed queries expand deterministically into typed variants: original, English-to-Persian keyboard correction, spelling corrections from the original and keyboard variants, synonyms from the original, then synonyms from the keyboard variant. The defaults assign priorities `1000`, `800`, `700`, `650`, `600`, and `400`, respectively, and keep at most 20 distinct query-locale pairs. Priority selects provenance when variants collide; it is not a document-score multiplier. Existing published configurations without the two spelling priority keys receive the compatible defaults.
 
 ```php
 $processed = PersianSearch::processQuery('\\vjrhg', 'en');
@@ -130,6 +133,73 @@ Synonyms are disabled by default, exact-locale, token-boundary-aware, and one-wa
 Single- and multi-token sources replace complete normalized token sequences, never substrings inside a word. Each generated variant applies one configured replacement, so expansion does not recurse or form a Cartesian product.
 
 Synonym expansions are yielded lazily in configured rule, replacement, and token-position order. Duplicate candidate token sequences are skipped before normalization, and duplicate normalized query-locale outputs are yielded once with first-configured provenance. `variants.maximum_variants` bounds both retained variants and generated synonym work: expansion is not invoked when earlier variants fill the collection, and generator consumption stops as soon as the final slot is filled.
+
+
+### Multilingual typo correction
+
+Phase-one typo correction is locale-aware but not Persian-only. It operates on
+Unicode code points and the per-locale vocabulary extracted from active search
+documents. It detects one- or two-edit insertion, deletion, substitution, and
+adjacent transposition errors such as:
+
+```text
+پرتفال  → پرتقال
+پرتال   → پرتقال
+پرتتقال → پرتقال
+پترقال  → پرتقال
+oragne  → orange
+```
+
+The runtime does not compare a query with every dictionary term. A bounded
+SymSpell-style symmetric-delete index retrieves a small candidate set, and a
+weighted Damerau-Levenshtein matcher verifies and orders it in PHP. Exact
+terms, short terms, unavailable locale dictionaries, and protected terms are
+not corrected. A base language dictionary may serve a region locale (for
+example `en` for `en-GB`) while the exact locale remains preferred.
+
+```bash
+php artisan persian-search:dictionary-build --force
+php artisan persian-search:dictionary-build --locale=fa --force
+php artisan persian-search:dictionary-status
+```
+
+The build reads `normalized_title`, `normalized_keywords`,
+`normalized_excerpt`, and `normalized_content` from active
+`persian_search_documents`. It creates its own term and delete-key tables using
+package migrations; no database rows or word lists are entered manually.
+Rebuild after a bulk reindex or whenever `dictionary-status` reports `stale`.
+
+```php
+'spelling' => [
+    'enabled' => env('PERSIAN_SEARCH_SPELLING_ENABLED', false),
+    'dictionary' => [
+        'minimum_token_length' => 4,
+        'minimum_document_frequency' => 1,
+        'protected_terms' => [
+            '*' => [],
+            'fa' => ['سن‌ایچ'],
+            'en' => ['sunich'],
+        ],
+    ],
+    'correction' => [
+        'maximum_edit_distance' => 2,
+        'two_edit_distance_minimum_length' => 8,
+        'maximum_candidates_per_token' => 5,
+        'maximum_candidate_rows_per_query' => 500,
+        'maximum_query_variants' => 5,
+        'maximum_tokens_to_inspect' => 4,
+        'maximum_tokens_to_correct' => 2,
+        'maximum_delete_keys_per_query' => 512,
+    ],
+],
+```
+
+`PersianSearch::spellingCorrections($processedQuery)` exposes the typed
+correction candidates directly. Normal search expansion adds `spelling` and
+`keyboard_spelling` variants and the existing result/suggestion pipeline
+chooses whether a correction is effective. Phase one intentionally excludes
+phonetic confusion sets, split/merge correction, contextual real-word models,
+and transliteration; those remain independent future layers.
 
 ## Indexing documents
 
@@ -500,9 +570,7 @@ locales. `document` and the backward-compatible `record` property both refer to
 the presented search document, while `rank`, `matchedQuery`,
 `candidateSource`, and `matchedLocale` retain matched-document provenance.
 
-Suggestions are evidence-based and limited to direct keyboard-correction
-families. Synonyms descended from a keyboard correction contribute evidence to
-that family, but the visible suggestion remains the direct keyboard-corrected
+Suggestions are evidence-based and limited to direct correction roots: keyboard, spelling, or keyboard-plus-spelling. Synonyms descended from a keyboard correction contribute evidence to that family, while each spelling correction starts its own family. The visible suggestion remains the direct corrected
 query. Original-query synonyms belong to the original family; synonym-only
 matches never create a suggestion. A correction is suggested only when the
 original family has no results, the corrected family has a strictly better

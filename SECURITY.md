@@ -19,3 +19,12 @@ Include the affected version or commit, impact, reproduction steps, and any
 known mitigation. Avoid including real credentials, personal data, or source
 document content. The maintainers do not promise a fixed response deadline;
 updates will be provided through the private report when available.
+
+## Typo-correction safety
+
+Spelling candidates are retrieved with bound parameters from validated table
+identifiers. Runtime work is capped by token, delete-key, candidate-row, edit-
+distance, and variant limits; no query text is interpolated into SQL and no
+full dictionary edit-distance scan is performed. Keep these bounds finite when
+customising configuration, and rebuild the dictionary only through trusted
+operator workflows under the package maintenance lock.

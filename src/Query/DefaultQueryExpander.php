@@ -3,6 +3,7 @@
 namespace Zarbinco\PersianSearch\Query;
 
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
+use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariant;
@@ -15,6 +16,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
         private QueryVariantPolicy $policy,
         private KeyboardLayoutCorrector $keyboard,
         private SynonymExpander $synonyms,
+        private ?SpellingCorrector $spelling = null,
     ) {}
 
     public function original(ProcessedSearchQuery $query): QueryVariantCollection
@@ -40,11 +42,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
         $variants = $this->original($query);
         $original = $variants->original();
 
-        if ($original === null) {
-            return $variants;
-        }
-
-        if ($variants->isFull()) {
+        if ($original === null || $variants->isFull()) {
             return $variants;
         }
 
@@ -65,10 +63,42 @@ final readonly class DefaultQueryExpander implements QueryExpander
             $variants = $variants->with($keyboard);
         }
 
+        $variants = $this->addSpelling($variants, $original, QueryVariantSource::Spelling);
+        if ($keyboard !== null) {
+            $variants = $this->addSpelling($variants, $keyboard, QueryVariantSource::KeyboardSpelling);
+        }
+
         $variants = $this->addSynonyms($variants, $original, QueryVariantSource::Synonym);
 
         if ($keyboard !== null) {
             $variants = $this->addSynonyms($variants, $keyboard, QueryVariantSource::KeyboardSynonym);
+        }
+
+        return $variants;
+    }
+
+    private function addSpelling(QueryVariantCollection $variants, QueryVariant $parent, QueryVariantSource $source): QueryVariantCollection
+    {
+        if ($variants->isFull() || $this->spelling === null) {
+            return $variants;
+        }
+
+        foreach ($this->spelling->correct($parent) as $correction) {
+            $variants = $variants->with(new QueryVariant(
+                query: $correction->correctedQuery,
+                locale: $correction->locale,
+                tokens: $correction->tokens,
+                source: $source,
+                priority: $this->policy->priority($source),
+                fingerprint: $this->fingerprint($source, $correction->correctedQuery, $correction->locale, $parent->fingerprint, $correction->fingerprint),
+                parentFingerprint: $parent->fingerprint,
+                keyboardCorrection: $parent->keyboardCorrection,
+                spellingCorrection: $correction,
+            ));
+
+            if ($variants->isFull()) {
+                return $variants;
+            }
         }
 
         return $variants;
@@ -90,6 +120,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
                 fingerprint: $this->fingerprint($source, $expansion->query, $expansion->locale, $parent->fingerprint, $expansion->fingerprint),
                 parentFingerprint: $parent->fingerprint,
                 keyboardCorrection: $parent->keyboardCorrection,
+                spellingCorrection: $parent->spellingCorrection,
                 appliedSynonyms: [...$parent->appliedSynonyms, $expansion],
             ));
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add opt-in multilingual typo correction for insertion, deletion, substitution, and adjacent transposition errors using a document-derived symmetric-delete dictionary, weighted Unicode Damerau-Levenshtein verification, bounded query variants, typed correction provenance, effective Did You Mean evidence, package migrations, build/status commands, and public APIs.
+
 - Remove Laravel 11 and earlier support; require Laravel 12 on PHP 8.2+ from
   Illuminate 12.61.1 or Laravel 13 on PHP 8.3+ from Illuminate 13.12.0; pair
   Testbench 10/11 explicitly in lockless highest/lowest-secure CI; and keep the
