@@ -13,10 +13,12 @@
         "laravel-package",
         "persian",
         "persian-search",
+        "phonetic-search",
         "query-expansion",
         "search",
         "spelling-correction",
-        "typo-tolerance"
+        "typo-tolerance",
+        "word-segmentation"
     ],
     "homepage": "https://github.com/zarbinco/laravel-persian-search",
     "license": "MIT",

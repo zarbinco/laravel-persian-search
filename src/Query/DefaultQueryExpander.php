@@ -2,9 +2,11 @@
 
 namespace Zarbinco\PersianSearch\Query;
 
+use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
+use Zarbinco\PersianSearch\Correction\CorrectionTransformationType;
 use Zarbinco\PersianSearch\Search\ProcessedSearchQuery;
 use Zarbinco\PersianSearch\Search\QueryVariant;
 use Zarbinco\PersianSearch\Search\QueryVariantCollection;
@@ -17,6 +19,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
         private KeyboardLayoutCorrector $keyboard,
         private SynonymExpander $synonyms,
         private ?SpellingCorrector $spelling = null,
+        private ?AdvancedQueryCorrector $advanced = null,
     ) {}
 
     public function original(ProcessedSearchQuery $query): QueryVariantCollection
@@ -63,9 +66,34 @@ final readonly class DefaultQueryExpander implements QueryExpander
             $variants = $variants->with($keyboard);
         }
 
-        $variants = $this->addSpelling($variants, $original, QueryVariantSource::Spelling);
+        /** @var list<QueryVariant> $spellingParents */
+        $spellingParents = [];
+        $variants = $this->addSpelling($variants, $original, QueryVariantSource::Spelling, $spellingParents);
         if ($keyboard !== null) {
-            $variants = $this->addSpelling($variants, $keyboard, QueryVariantSource::KeyboardSpelling);
+            $variants = $this->addSpelling(
+                $variants,
+                $keyboard,
+                QueryVariantSource::KeyboardSpelling,
+                $spellingParents,
+            );
+        }
+
+        /** @var array<string, true> $advancedParents */
+        $advancedParents = [];
+        foreach ($spellingParents as $spellingParent) {
+            if (! $this->retains($variants, $spellingParent->fingerprint)) {
+                continue;
+            }
+            $variants = $this->addAdvanced(
+                $variants,
+                $spellingParent,
+                $spellingParent->keyboardCorrection !== null,
+                $advancedParents,
+            );
+        }
+        $variants = $this->addAdvanced($variants, $original, false, $advancedParents);
+        if ($keyboard !== null) {
+            $variants = $this->addAdvanced($variants, $keyboard, true, $advancedParents);
         }
 
         $variants = $this->addSynonyms($variants, $original, QueryVariantSource::Synonym);
@@ -77,14 +105,73 @@ final readonly class DefaultQueryExpander implements QueryExpander
         return $variants;
     }
 
-    private function addSpelling(QueryVariantCollection $variants, QueryVariant $parent, QueryVariantSource $source): QueryVariantCollection
-    {
+    /** @param array<string, true> $expandedParents */
+    private function addAdvanced(
+        QueryVariantCollection $variants,
+        QueryVariant $parent,
+        bool $keyboard,
+        array &$expandedParents,
+    ): QueryVariantCollection {
+        if ($variants->isFull() || $this->advanced === null) {
+            return $variants;
+        }
+        $semanticKey = $parent->semanticKey();
+        if (isset($expandedParents[$semanticKey])) {
+            return $variants;
+        }
+        $expandedParents[$semanticKey] = true;
+
+        foreach ($this->advanced->correct($parent) as $correction) {
+            $source = match ([$correction->type(), $keyboard]) {
+                [CorrectionTransformationType::Phonetic, false] => QueryVariantSource::Phonetic,
+                [CorrectionTransformationType::Phonetic, true] => QueryVariantSource::KeyboardPhonetic,
+                [CorrectionTransformationType::Split, false] => QueryVariantSource::Split,
+                [CorrectionTransformationType::Split, true] => QueryVariantSource::KeyboardSplit,
+                [CorrectionTransformationType::Merge, false] => QueryVariantSource::Merge,
+                [CorrectionTransformationType::Merge, true] => QueryVariantSource::KeyboardMerge,
+            };
+            $variants = $variants->with(new QueryVariant(
+                query: $correction->correctedQuery,
+                locale: $correction->locale,
+                tokens: $correction->tokens,
+                source: $source,
+                priority: $this->policy->priority($source),
+                fingerprint: $this->fingerprint(
+                    $source,
+                    $correction->correctedQuery,
+                    $correction->locale,
+                    $parent->fingerprint,
+                    $correction->fingerprint,
+                ),
+                parentFingerprint: $parent->fingerprint,
+                keyboardCorrection: $parent->keyboardCorrection,
+                spellingCorrection: $parent->spellingCorrection,
+                advancedCorrection: $correction,
+            ));
+
+            if ($variants->isFull()) {
+                return $variants;
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * @param  list<QueryVariant>  $retainedParents
+     */
+    private function addSpelling(
+        QueryVariantCollection $variants,
+        QueryVariant $parent,
+        QueryVariantSource $source,
+        array &$retainedParents,
+    ): QueryVariantCollection {
         if ($variants->isFull() || $this->spelling === null) {
             return $variants;
         }
 
         foreach ($this->spelling->correct($parent) as $correction) {
-            $variants = $variants->with(new QueryVariant(
+            $candidate = new QueryVariant(
                 query: $correction->correctedQuery,
                 locale: $correction->locale,
                 tokens: $correction->tokens,
@@ -94,7 +181,11 @@ final readonly class DefaultQueryExpander implements QueryExpander
                 parentFingerprint: $parent->fingerprint,
                 keyboardCorrection: $parent->keyboardCorrection,
                 spellingCorrection: $correction,
-            ));
+            );
+            $variants = $variants->with($candidate);
+            if ($this->retains($variants, $candidate->fingerprint)) {
+                $retainedParents[] = $candidate;
+            }
 
             if ($variants->isFull()) {
                 return $variants;
@@ -102,6 +193,17 @@ final readonly class DefaultQueryExpander implements QueryExpander
         }
 
         return $variants;
+    }
+
+    private function retains(QueryVariantCollection $variants, string $fingerprint): bool
+    {
+        foreach ($variants as $variant) {
+            if ($variant->fingerprint === $fingerprint) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function addSynonyms(QueryVariantCollection $variants, QueryVariant $parent, QueryVariantSource $source): QueryVariantCollection
@@ -121,6 +223,7 @@ final readonly class DefaultQueryExpander implements QueryExpander
                 parentFingerprint: $parent->fingerprint,
                 keyboardCorrection: $parent->keyboardCorrection,
                 spellingCorrection: $parent->spellingCorrection,
+                advancedCorrection: $parent->advancedCorrection,
                 appliedSynonyms: [...$parent->appliedSynonyms, $expansion],
             ));
 

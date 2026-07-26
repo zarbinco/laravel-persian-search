@@ -18,8 +18,8 @@ Laravel 12 with Testbench 10 and Laravel 13 with Testbench 11.
 
 Implemented behavior includes:
 
-- locale-aware text processing, wrong-keyboard correction, multilingual typo
-  correction, and synonym query variants;
+- locale-aware text processing, wrong-keyboard correction, multilingual typo,
+  phonetic-confusion, split/merge correction, and synonym query variants;
 - validated document providers, atomic indexing, and provider-aware lifecycle
   synchronization;
 - dependency-aware reindexing and exact cross-locale counterpart bridging;
@@ -40,7 +40,9 @@ php artisan migrate
 php artisan persian-search:dictionary-build --force
 ```
 
-Typo correction remains disabled until `PERSIAN_SEARCH_SPELLING_ENABLED=true` is configured after the first successful dictionary build. No SQL or external word list is imported manually.
+Typo, phonetic, and segmentation correction remain independently disabled
+until their corresponding environment flags are configured after a successful
+dictionary build. No SQL or external word list is imported manually.
 
 The index connection, table, default partition, undefined locale, lifecycle flags, query expansion, limits, and basic ranking settings are configured in `config/persian-search.php`.
 
@@ -99,7 +101,15 @@ Lengths count Unicode code points rather than bytes or visual grapheme clusters.
 
 ## Query variants
 
-Ready processed queries expand deterministically into typed variants: original, English-to-Persian keyboard correction, spelling corrections from the original and keyboard variants, synonyms from the original, then synonyms from the keyboard variant. The defaults assign priorities `1000`, `800`, `700`, `650`, `600`, and `400`, respectively, and keep at most 20 distinct query-locale pairs. Priority selects provenance when variants collide; it is not a document-score multiplier. Existing published configurations without the two spelling priority keys receive the compatible defaults.
+Ready processed queries expand deterministically into typed variants: original,
+English-to-Persian keyboard correction, edit-based spelling corrections,
+phonetic/split/merge corrections from the original and keyboard variants, then
+synonyms. Exact, keyboard, and edit-based spelling provenance retain their
+existing precedence. Advanced sources occupy the bounded priority interval
+between keyboard-spelling and synonym sources. Existing published
+configurations may omit every advanced priority key; compatible deterministic
+values are derived automatically. Priority selects provenance when variants
+collide; it is not a document-score multiplier.
 
 ```php
 $processed = PersianSearch::processQuery('\\vjrhg', 'en');
@@ -137,7 +147,7 @@ Synonym expansions are yielded lazily in configured rule, replacement, and token
 
 ### Multilingual typo correction
 
-Phase-one typo correction is locale-aware but not Persian-only. It operates on
+Edit-based typo correction is locale-aware but not Persian-only. It operates on
 Unicode code points and the per-locale vocabulary extracted from active search
 documents. It detects one- or two-edit insertion, deletion, substitution, and
 adjacent transposition errors such as:
@@ -197,9 +207,112 @@ Rebuild after a bulk reindex or whenever `dictionary-status` reports `stale`.
 `PersianSearch::spellingCorrections($processedQuery)` exposes the typed
 correction candidates directly. Normal search expansion adds `spelling` and
 `keyboard_spelling` variants and the existing result/suggestion pipeline
-chooses whether a correction is effective. Phase one intentionally excludes
-phonetic confusion sets, split/merge correction, contextual real-word models,
-and transliteration; those remain independent future layers.
+chooses whether a correction is effective.
+
+### Phonetic and word-segmentation correction
+
+Advanced correction is separately opt-in and reuses the same locale dictionary.
+It never accepts a generated candidate unless every resulting term exists in
+one locale from the exact-to-base locale chain. Built-in `fa` and `en` profiles
+are provided; `fa-IR`, `en-GB`, and `en-US` fall back to their base profiles.
+Unsupported locales produce no advanced candidates and leave keyboard and
+edit-based spelling behavior unchanged.
+
+The conservative Persian profile uses directed, weighted confusion rules for
+`س/ص/ث`, `ز/ذ/ض/ظ`, `ت/ط`, `ق/غ`, and `ه/ح`. The English profile implements
+only the documented lightweight `ph/f`, `ck/k`, and `c/k` grapheme rules. It is
+not a universal English phonetic model. Applications extend the engine by
+registering classes implementing
+`Zarbinco\PersianSearch\Contracts\LanguageCorrectionProfile`; configuration
+accepts class names only, never callbacks.
+
+Joined-word splitting inspects bounded Unicode split positions and accepts one
+token becoming exactly two dictionary terms. Adjacent-word merging inspects
+bounded adjacent pairs, preserves order, and accepts only a dictionary-backed
+merged term. The pair-inspection limit controls how many raw adjacent positions
+are considered; `maximum_merges_per_query` is enforced only after dictionary
+acceptance, so an invalid early pair cannot hide a valid later merge.
+
+Accepted phonetic options are grouped by token and composed with a deterministic
+bounded-state beam. `maximum_candidates_per_token` bounds each token's accepted
+options, `maximum_tokens_to_correct` bounds changed token positions in one
+candidate, `maximum_query_variants` bounds output, and
+`maximum_transformation_depth` bounds the number of advanced transformations.
+The depth does not count edit-based spelling metadata; a spelling-derived
+advanced variant retains both typed provenance objects.
+
+Advanced correction runs once per distinct retained original, keyboard, or
+spelling-derived parent. It never expands its own output. All phonetic, split,
+and merge lookup terms for one parent share one parameterized `whereIn` query;
+runtime never scans the term table or queries once per token, alternative, or
+composed state. URLs, emails, numeric expressions, identifiers, protected
+terms, short segments, punctuation boundaries, excessive positions, and
+excessive transformation depth are rejected.
+
+```text
+بصطنی       → بستنی
+قذا         → غذا
+بصطنی قذا   → بستنی غذا
+آبپرتقال    → اب پرتقال  (normalized metadata; display text follows application policy)
+icecream    → ice cream
+searchengine → search engine
+web site    → website
+fone        → phone      (documented ph/f profile rule)
+oragne fone → orange phone (edit-based spelling followed by phonetic correction)
+```
+
+```php
+'spelling' => [
+    // Existing dictionary and edit-based correction options remain unchanged.
+    'maximum_transformation_depth' => 2,
+    'maximum_advanced_lookup_terms' => 256,
+    'maximum_advanced_candidate_rows' => 512,
+    'phonetic' => [
+        'enabled' => env('PERSIAN_SEARCH_PHONETIC_ENABLED', false),
+        'profiles' => [
+            \Zarbinco\PersianSearch\Correction\PersianLanguageCorrectionProfile::class,
+            \Zarbinco\PersianSearch\Correction\EnglishLanguageCorrectionProfile::class,
+        ],
+        'maximum_tokens_to_correct' => 2,
+        'maximum_alternatives_per_token' => 32,
+        'maximum_candidates_per_token' => 5,
+        'maximum_query_variants' => 5,
+    ],
+    'segmentation' => [
+        'enabled' => env('PERSIAN_SEARCH_SEGMENTATION_ENABLED', false),
+        'split_enabled' => true,
+        'merge_enabled' => true,
+        'minimum_token_length' => 6,
+        'minimum_segment_length' => 2,
+        'maximum_segments' => 2,
+        'maximum_split_positions_per_token' => 24,
+        'maximum_adjacent_pairs' => 4,
+        'maximum_merges_per_query' => 1,
+        'maximum_query_variants' => 5,
+    ],
+],
+```
+
+Set the desired feature flag before rebuilding so short phonetic and
+segmentation vocabulary is included, run
+`php artisan persian-search:dictionary-build --force`, inspect
+`persian-search:dictionary-status`, then enable the feature in production.
+No additional migration is required.
+
+`PersianSearch::advancedCorrections($processedQuery)` returns immutable,
+typed corrections with original, normalized, and corrected query metadata;
+locale; ordered tokens; directed transformation rules; weighted cost; bounded
+depth; stable fingerprint; and full transformation chain. Normal query
+expansion exposes `phonetic`, `split`, `merge`, and keyboard-derived source
+values without changing existing enum values or positional `QueryVariant`
+arguments. A spelling-derived advanced variant continues to use the applicable
+advanced source; its structured `spellingCorrection` and `advancedCorrection`
+fields preserve both layers without a misleading combined source name.
+
+Advanced correction deliberately excludes contextual real-word correction,
+language models, analytics, transliteration, external search services, and
+automatic UI application. Suggestions remain recommendations backed by the
+existing effective-result evidence policy.
 
 ## Indexing documents
 
@@ -570,7 +683,11 @@ locales. `document` and the backward-compatible `record` property both refer to
 the presented search document, while `rank`, `matchedQuery`,
 `candidateSource`, and `matchedLocale` retain matched-document provenance.
 
-Suggestions are evidence-based and limited to direct correction roots: keyboard, spelling, or keyboard-plus-spelling. Synonyms descended from a keyboard correction contribute evidence to that family, while each spelling correction starts its own family. The visible suggestion remains the direct corrected
+Suggestions are evidence-based and limited to direct correction roots:
+keyboard, spelling, phonetic, split, merge, or their keyboard-derived forms.
+Synonyms descended from a keyboard correction contribute evidence to that
+family, while each spelling or advanced correction starts its own family. The
+visible suggestion remains the direct corrected
 query. Original-query synonyms belong to the original family; synonym-only
 matches never create a suggestion. A correction is suggested only when the
 original family has no results, the corrected family has a strictly better

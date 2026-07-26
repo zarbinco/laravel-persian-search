@@ -5,10 +5,12 @@ namespace Zarbinco\PersianSearch;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Throwable;
+use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
+use Zarbinco\PersianSearch\Correction\AdvancedCorrectionCollection;
 use Zarbinco\PersianSearch\Indexing\SearchDocument;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentBuilder;
 use Zarbinco\PersianSearch\Indexing\SearchDocumentIdentity;
@@ -44,6 +46,7 @@ final class PersianSearchManager
         private readonly SearchResultPolicy $resultPolicy,
         private readonly EmptySearchResultFactory $emptyResults,
         private readonly ?SpellingCorrector $spelling = null,
+        private readonly ?AdvancedQueryCorrector $advanced = null,
     ) {}
 
     public function textPipeline(): SearchTextPipeline
@@ -83,6 +86,20 @@ final class PersianSearchManager
         return $original === null || $this->spelling === null
             ? new SpellingCorrectionCollection(1)
             : $this->spelling->correct($original);
+    }
+
+    public function advancedCorrector(): ?AdvancedQueryCorrector
+    {
+        return $this->advanced;
+    }
+
+    public function advancedCorrections(ProcessedSearchQuery $query): AdvancedCorrectionCollection
+    {
+        $original = $this->expander->original($query)->original();
+
+        return $original === null || $this->advanced === null
+            ? new AdvancedCorrectionCollection(1)
+            : $this->advanced->correct($original);
     }
 
     public function queryProcessor(): SearchQueryProcessor

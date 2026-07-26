@@ -241,3 +241,57 @@ an exact dictionary term. If the tables are missing,
 `fail_when_unavailable=false` keeps normal search available without typo
 variants; set it to `true` when missing dictionary infrastructure must fail
 closed.
+
+## Phonetic and segmentation operations
+
+Phonetic and segmentation features reuse the existing term dictionary and add
+no migration or phonetic-key table. Before rebuilding, enable the desired
+feature in the deployment environment so terms down to its configured minimum
+length are retained:
+
+```text
+PERSIAN_SEARCH_PHONETIC_ENABLED=true
+PERSIAN_SEARCH_SEGMENTATION_ENABLED=true
+php artisan persian-search:dictionary-build --force
+php artisan persian-search:dictionary-status
+```
+
+The same command and maintenance lock cover edit-based and advanced vocabulary.
+Locale-scoped rebuild remains available. Status reports supported/enabled
+profiles, phonetic/split/merge readiness, and a warning when an enabled feature
+has no usable term dictionary.
+
+Runtime performs one bounded term lookup per advanced parent variant, regardless
+of the number of inspected tokens, alternatives, or split positions. Feature
+flags are independent from keyboard correction, edit-based spelling, indexing,
+and suggestions. Missing terms fail softly under the existing policy or throw
+the existing dictionary-unavailable exception when fail-closed mode is enabled.
+
+Advanced parents include each distinct retained original, keyboard, spelling,
+and keyboard-spelling query. A spelling correction can therefore feed a
+phonetic or segmentation correction while retaining both DTOs. Each parent
+still performs exactly one advanced term lookup: accepted options and bounded
+multi-token states are composed in memory after that lookup, with no query per
+token or state.
+
+`spelling.phonetic.maximum_tokens_to_inspect` limits eligible token positions;
+`maximum_candidates_per_token` limits dictionary-accepted options at each
+position; `maximum_tokens_to_correct` limits positions changed in one composed
+candidate; and `maximum_query_variants` limits retained phonetic candidates.
+`spelling.maximum_transformation_depth` counts advanced transformation objects,
+not the separate edit-based spelling DTO. For example, correcting two phonetic
+tokens has depth two, while one spelling correction followed by one phonetic
+change has advanced depth one and retains both provenance layers.
+
+For merging, `maximum_adjacent_pairs` is the raw safe-pair inspection limit.
+`maximum_merges_per_query` is checked only on dictionary-accepted states.
+Consequently an invalid early pair does not consume the accepted merge budget.
+With the default value of one, multiple alternative one-merge candidates may
+be returned, but no candidate contains two merge transformations.
+
+For upgrades, publish the current config, retain any application overrides,
+enable the selected feature in a controlled environment, rebuild, verify
+status/representative queries, and then deploy the flag. Applications adding a
+profile should bind any constructor dependencies in Laravel and place its class
+in `spelling.phonetic.profiles`. Rebuild after profile or minimum-length
+changes. No arbitrary callbacks or per-query profile construction are used.

@@ -1,5 +1,8 @@
 <?php
 
+use Zarbinco\PersianSearch\Correction\EnglishLanguageCorrectionProfile;
+use Zarbinco\PersianSearch\Correction\PersianLanguageCorrectionProfile;
+
 return [
     'driver' => env('PERSIAN_SEARCH_DRIVER', 'database'),
 
@@ -112,6 +115,12 @@ return [
             'keyboard' => 800,
             'spelling' => 700,
             'keyboard_spelling' => 650,
+            'phonetic' => 640,
+            'split' => 630,
+            'merge' => 620,
+            'keyboard_phonetic' => 615,
+            'keyboard_split' => 610,
+            'keyboard_merge' => 605,
             'synonym' => 600,
             'keyboard_synonym' => 400,
         ],
@@ -139,6 +148,9 @@ return [
         'terms_table' => 'persian_search_dictionary_terms',
         'deletes_table' => 'persian_search_dictionary_deletes',
         'fail_when_unavailable' => false,
+        'maximum_transformation_depth' => 2,
+        'maximum_advanced_lookup_terms' => 256,
+        'maximum_advanced_candidate_rows' => 512,
 
         'dictionary' => [
             'minimum_token_length' => 4,
@@ -173,6 +185,37 @@ return [
                 'transposition' => 700,
                 'adjacent_key_substitution' => 450,
             ],
+        ],
+
+        'phonetic' => [
+            'enabled' => env('PERSIAN_SEARCH_PHONETIC_ENABLED', false),
+            'profiles' => [
+                PersianLanguageCorrectionProfile::class,
+                EnglishLanguageCorrectionProfile::class,
+            ],
+            'minimum_token_length' => 3,
+            'maximum_tokens_to_inspect' => 4,
+            'maximum_tokens_to_correct' => 2,
+            'maximum_changes_per_token' => 2,
+            'maximum_alternatives_per_token' => 32,
+            'maximum_candidates_per_token' => 5,
+            'maximum_query_variants' => 5,
+            'base_cost' => 1200,
+        ],
+
+        'segmentation' => [
+            'enabled' => env('PERSIAN_SEARCH_SEGMENTATION_ENABLED', false),
+            'split_enabled' => true,
+            'merge_enabled' => true,
+            'minimum_token_length' => 6,
+            'minimum_segment_length' => 2,
+            'maximum_segments' => 2,
+            'maximum_split_positions_per_token' => 24,
+            'maximum_adjacent_pairs' => 4,
+            'maximum_merges_per_query' => 1,
+            'maximum_query_variants' => 5,
+            'split_cost' => 1400,
+            'merge_cost' => 1500,
         ],
 
         // Unicode edit distance works for every locale. These optional maps only

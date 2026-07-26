@@ -3,6 +3,8 @@
 namespace Zarbinco\PersianSearch\Spelling;
 
 use Illuminate\Database\DatabaseManager;
+use Zarbinco\PersianSearch\Correction\AdvancedCorrectionPolicy;
+use Zarbinco\PersianSearch\Correction\LanguageCorrectionProfileRegistry;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 
 final readonly class SpellingDictionaryStatusService
@@ -10,6 +12,8 @@ final readonly class SpellingDictionaryStatusService
     public function __construct(
         private SpellingPolicy $policy,
         private DatabaseManager $database,
+        private ?AdvancedCorrectionPolicy $advanced = null,
+        private ?LanguageCorrectionProfileRegistry $profiles = null,
     ) {}
 
     public function snapshot(): SpellingDictionaryStatus
@@ -67,6 +71,14 @@ final readonly class SpellingDictionaryStatusService
 
         $lastBuilt = $this->maximumTimestamp($dictionaryBuiltByLocale);
         $latestDocument = $this->maximumTimestamp($documentsByLocale);
+        $supportedProfiles = $this->profiles?->locales() ?? [];
+        $advancedEnabled = $this->advanced?->enabled() ?? false;
+        $enabledProfiles = $advancedEnabled ? $supportedProfiles : [];
+        $dictionaryReady = $termsExist && $terms > 0;
+        $warnings = [];
+        if ($advancedEnabled && ! $dictionaryReady) {
+            $warnings[] = 'Advanced correction is enabled but the term dictionary is not ready.';
+        }
 
         return new SpellingDictionaryStatus(
             enabled: $this->policy->enabled,
@@ -81,6 +93,16 @@ final readonly class SpellingDictionaryStatusService
             lastBuiltAt: $lastBuilt,
             latestDocumentIndexedAt: $latestDocument,
             stale: $stale,
+            supportedProfiles: $supportedProfiles,
+            enabledProfiles: $enabledProfiles,
+            phoneticReady: ($this->advanced->phoneticEnabled ?? false) && $dictionaryReady,
+            splitReady: ($this->advanced->segmentationEnabled ?? false)
+                && ($this->advanced->splitEnabled ?? false)
+                && $dictionaryReady,
+            mergeReady: ($this->advanced->segmentationEnabled ?? false)
+                && ($this->advanced->mergeEnabled ?? false)
+                && $dictionaryReady,
+            warnings: $warnings,
         );
     }
 

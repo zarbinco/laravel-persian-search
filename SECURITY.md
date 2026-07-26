@@ -28,3 +28,18 @@ distance, and variant limits; no query text is interpolated into SQL and no
 full dictionary edit-distance scan is performed. Keep these bounds finite when
 customising configuration, and rebuild the dictionary only through trusted
 operator workflows under the package maintenance lock.
+
+Advanced correction generates a bounded set of locale-profile alternatives,
+split positions, and adjacent merges in memory, then validates all required
+terms with one parameterized dictionary lookup. Profile configuration accepts
+only classes implementing `LanguageCorrectionProfile`; it does not evaluate
+callbacks. Built-in profiles never bypass dictionary existence, locale
+isolation, protected terms, query length/token policy, candidate-row limits, or
+transformation-depth limits.
+
+URLs, emails, decimal expressions, letter/digit codes, underscore identifiers,
+and hyphenated identifiers are rejected conservatively before advanced
+generation. Custom profiles must emit valid Unicode terms, finite iterables,
+positive costs, one-character separators, stable locale metadata, and
+non-sensitive rule identifiers. The engine stops consuming alternatives at the
+configured bound even if an extension yields indefinitely.

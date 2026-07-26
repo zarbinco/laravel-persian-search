@@ -72,7 +72,15 @@ Fluent query processing is lazy, so the final effective locale is authoritative 
 
 ## Query variants
 
-`QueryExpander` accepts only a ready `ProcessedSearchQuery` and returns a bounded `QueryVariantCollection`. Generation order and default precedence are original (`1000`), keyboard (`800`), spelling (`700`), keyboard-spelling (`650`), synonym (`600`), and keyboard-synonym (`400`). Each immutable variant carries normalized query text, ordered searchable tokens, locale, source enum, priority, deterministic fingerprint, parent fingerprint, and typed keyboard, spelling, or synonym provenance.
+`QueryExpander` accepts only a ready `ProcessedSearchQuery` and returns a
+bounded `QueryVariantCollection`. Generation order is original, keyboard,
+edit-based spelling, advanced correction, then synonyms. Existing precedence
+remains original (`1000`), keyboard (`800`), spelling (`700`), and
+keyboard-spelling (`650`); phonetic/split/merge sources occupy deterministic
+priorities above synonym (`600`), while keyboard-synonym remains `400`. Each
+immutable variant carries normalized query text, ordered searchable tokens,
+locale, source enum, priority, deterministic fingerprint, parent fingerprint,
+and typed keyboard, spelling, advanced, or synonym provenance.
 
 The collection deduplicates by fingerprint and by normalized query plus locale. Higher priority replaces lower provenance, equal priority keeps the first occurrence, different locales stay distinct, and the original can never be displaced by generated provenance. The original counts toward `maximum_variants`; generation stops at the bound without recursive synonym expansion or synonym Cartesian products. Synonym expansion returns a fresh lazy generator for each call. The expander does not invoke it when earlier variants already fill the collection and stops consuming it immediately after the final available slot, so the bound limits generated work as well as retained output.
 
@@ -98,6 +106,71 @@ Spelling is fail-soft by default when its tables are unavailable and can be
 configured to fail closed for deployments that require the dictionary. It is
 disabled by default so upgrading the package without publishing/building the
 new dictionary cannot alter an existing application's search behavior.
+
+### Advanced correction layer
+
+`LanguageCorrectionProfile` owns locale-specific phonetic alternatives and
+separator policy. The registry validates unique base locale metadata and
+resolves exact-to-base fallback. Built-in Persian and English profiles remain
+small independent classes; applications may register additional container-
+resolvable profile classes through validated configuration.
+
+`DatabaseAdvancedQueryCorrector` receives one parent variant and never scans
+dictionary vocabulary. It bounds profile consumption, phonetic-change depth,
+split positions, adjacent-pair inspection, unique lookup terms, candidate rows,
+accepted options per token, changed tokens, retained states, and final variants.
+Original tokens, phonetic outputs, all split segments, and merge outputs are
+deduplicated into one parameterized term-table query per parent. There is no
+query per token, proposal, or composed state. A split is valid only when both
+segments exist in one locale; a phonetic or merge candidate requires its
+complete term in that locale.
+
+After that single lookup, accepted phonetic options are grouped by ordered token
+index. A bounded beam starts with the unchanged token state and, for each
+correctable index, retains both unchanged and accepted replacement branches.
+Every state carries replacements, ordered proposals, weighted cost, combined
+frequency, corrected-token count, and unresolved count. The beam rejects states
+past `maximum_tokens_to_correct` or the remaining transformation depth,
+deduplicates equivalent indexed replacements, sorts by unresolved count, cost,
+frequency, and binary lexical key, and retains only a small multiple of the
+configured output limit. Complete Cartesian expansion is never materialized.
+Combined candidates must resolve all replacement terms in one locale from the
+exact-to-base chain.
+
+Merge proposal generation inspects up to `maximum_adjacent_pairs` safe
+whitespace-separated positions without consuming the accepted merge limit.
+Dictionary validation happens in the shared batch, and
+`maximum_merges_per_query` applies to accepted correction states. The current
+architecture emits single-merge states, so a value of one can retain multiple
+alternative one-merge candidates but never combines two merges in one query.
+Final ranking remains deterministic across unresolved count, weighted cost,
+transformation kind, frequency, and corrected query.
+
+The correction DTO contains an immutable transformation chain. Each
+transformation records kind, token index, original/replacement tokens, cost,
+profile, and rule. Query variants add the DTO as a trailing optional
+constructor argument, preserving every existing positional call. Expansion
+first retains original, keyboard, and edit-based spelling variants, then applies
+advanced correction once to each distinct retained original, keyboard, or
+spelling-derived semantic parent. Spelling-derived children retain their
+`SpellingCorrection` while adding `AdvancedCorrection`; keyboard-spelling
+children retain all three structured layers. `AdvancedCorrection::originalQuery`
+is recovered from the earliest available provenance and therefore remains the
+true user query rather than the intermediate spelling text.
+
+Advanced output is never recursively expanded. Transformation depth is the
+number of advanced `QueryTransformation` objects, including every token changed
+inside a composed phonetic candidate; edit-based spelling metadata is a
+separate provenance layer and does not increment that depth. Parent variants
+are expanded only while retained, and no child is inserted with a fingerprint
+that points to a parent absent from the bounded collection.
+
+No new table is required: exact term/frequency rows already provide every
+signal needed for bounded phonetic acceptance and two-segment split/merge
+validation. When advanced features are enabled during dictionary rebuild,
+short terms down to the configured phonetic or segment minimum are retained in
+the existing term table; symmetric-delete rows remain limited to terms eligible
+for edit-based spelling.
 
 English-to-Persian is the only keyboard direction. English-family input uses one authoritative Windows Persian keyboard map, including backslash to `پ`. Base and Shift states are mapped case-sensitively, including uppercase letters, shifted punctuation, and multi-character output such as `R → ریال`. The already-sanitized physical input is retained for correction before English normalization can collapse Shift state. A generic configured `en` source accepts English region locales; a configured region locale is exact. Corrected output is prepared with the configured Persian target locale. No reverse layout correction or transliteration is claimed.
 
@@ -229,7 +302,10 @@ bridging and deduplication do not invent a truncation reason.
 
 Suggestion evaluation runs once over ranked pre-bridge candidates and performs
 no SQL or source hydration. The original variant and its synonym descendants
-form the original family. Each direct keyboard, spelling, or keyboard-spelling variant starts a separate correction family. Keyboard-synonym descendants contribute to their keyboard family. Only a direct correction root can become the visible suggestion.
+form the original family. Each direct keyboard, spelling, keyboard-spelling,
+phonetic, split, merge, or keyboard-derived advanced variant starts a separate
+correction family. Keyboard-synonym descendants contribute to their keyboard
+family. Only a direct correction root can become the visible suggestion.
 
 Universal eligibility requires suggestions to be enabled, the configured
 minimum corrected-family result count, and—by default—an exact candidate

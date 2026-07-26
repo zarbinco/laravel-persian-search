@@ -19,6 +19,7 @@ use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\PruneCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Console\StatusCommand;
+use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDependencyPendingState;
@@ -31,6 +32,10 @@ use Zarbinco\PersianSearch\Contracts\SearchTextSanitizer;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Contracts\SpellingCorrector;
 use Zarbinco\PersianSearch\Contracts\SynonymExpander;
+use Zarbinco\PersianSearch\Correction\AdvancedCorrectionPolicy;
+use Zarbinco\PersianSearch\Correction\AdvancedCorrectionPolicyFactory;
+use Zarbinco\PersianSearch\Correction\DatabaseAdvancedQueryCorrector;
+use Zarbinco\PersianSearch\Correction\LanguageCorrectionProfileRegistry;
 use Zarbinco\PersianSearch\Dependencies\SearchDependencyDispatcher;
 use Zarbinco\PersianSearch\Dependencies\SearchDependencyObserver;
 use Zarbinco\PersianSearch\Dependencies\SearchDependencyObserverRegistrar;
@@ -191,6 +196,21 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $this->app->alias(DatabaseSpellingCorrector::class, SpellingCorrector::class);
         $this->app->singleton(SpellingDictionaryBuilder::class, SpellingDictionaryBuilder::class);
         $this->app->singleton(SpellingDictionaryStatusService::class, SpellingDictionaryStatusService::class);
+        $this->app->singleton(AdvancedCorrectionPolicyFactory::class, AdvancedCorrectionPolicyFactory::class);
+        $this->app->singleton(AdvancedCorrectionPolicy::class, function ($app): AdvancedCorrectionPolicy {
+            return $app->make(AdvancedCorrectionPolicyFactory::class)->make();
+        });
+        $this->app->singleton(LanguageCorrectionProfileRegistry::class, function ($app): LanguageCorrectionProfileRegistry {
+            $policy = $app->make(AdvancedCorrectionPolicy::class);
+            $profiles = array_map(
+                static fn (string $class) => $app->make($class),
+                $policy->profileClasses,
+            );
+
+            return new LanguageCorrectionProfileRegistry($profiles);
+        });
+        $this->app->singleton(DatabaseAdvancedQueryCorrector::class, DatabaseAdvancedQueryCorrector::class);
+        $this->app->alias(DatabaseAdvancedQueryCorrector::class, AdvancedQueryCorrector::class);
 
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
@@ -242,6 +262,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(KeyboardLayoutCorrector::class),
                 $app->make(SynonymExpander::class),
                 $app->make(SpellingCorrector::class),
+                $app->make(AdvancedQueryCorrector::class),
             );
         });
 
@@ -386,6 +407,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(SearchResultPolicy::class),
                 $app->make(EmptySearchResultFactory::class),
                 $app->make(SpellingCorrector::class),
+                $app->make(AdvancedQueryCorrector::class),
             );
         });
 

@@ -50,6 +50,7 @@ final class QueryVariantTest extends TestCase
 
         $this->assertSame([], $variant->appliedSynonyms);
         $this->assertNull($variant->spellingCorrection);
+        $this->assertNull($variant->advancedCorrection);
     }
 
     public function test_collection_rejects_non_positive_limit(): void

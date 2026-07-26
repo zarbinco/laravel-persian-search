@@ -17,6 +17,15 @@
   publication, and fresh search-document plus spelling-dictionary migrations.
 - Build locale-scoped and full spelling dictionaries, inspect status/staleness,
   and verify disabled, fail-soft, and fail-closed runtime modes.
+- Verify phonetic and segmentation flags independently, built-in and custom
+  profile validation, exact-to-base locale fallback, protected terms, one-query
+  candidate validation per parent, bounded two-token phonetic composition,
+  spelling-to-advanced provenance, split/merge bounds, invalid-early-pair merge
+  handling, transformation depth, advanced suggestion evidence, and status
+  readiness warnings.
+- Confirm an upgrade needs no additional migration, rebuilds the existing
+  dictionary after enabling advanced vocabulary, and leaves edit-based spelling
+  and keyboard variants unchanged when advanced flags are disabled.
 - Exercise source save/delete/restore, enumerator reindex dry-run and write
   modes, prune dry-run and execute modes, status, and doctor.
 - Review dependency constraints, database portability, queue/cache
@@ -28,4 +37,6 @@
   package metadata only after all preceding checks pass.
 
 Tagging, publishing, and release creation are deliberately manual future
-actions; package checks and CI never perform them.
+actions; package checks and CI never perform them. The latest repository tag is
+`v1.0.0`; if the unreleased spelling and advanced correction work ships
+together, the backward-compatible feature release recommendation is `v1.1.0`.

@@ -31,6 +31,8 @@ final class PersianSearchFoundationTest extends TestCase
         $this->assertNull(config('persian-search.keyboard.fa_to_en'));
         $this->assertSame(20, config('persian-search.variants.maximum_variants'));
         $this->assertFalse(config('persian-search.spelling.enabled'));
+        $this->assertFalse(config('persian-search.spelling.phonetic.enabled'));
+        $this->assertFalse(config('persian-search.spelling.segmentation.enabled'));
         $this->assertSame(2, config('persian-search.spelling.correction.maximum_edit_distance'));
         $packageConfig = require __DIR__.'/../../config/persian-search.php';
         $this->assertSame('fa', $packageConfig['keyboard']['en_to_fa']['target_locale']);

@@ -32,6 +32,11 @@ final class SpellingDictionaryCommandTest extends TestCase
         $this->assertDatabaseMissing('persian_search_dictionary_terms', ['locale' => 'en']);
 
         $this->assertSame(0, Artisan::call('persian-search:dictionary-status', ['--json' => true]));
+        $status = json_decode(Artisan::output(), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(['en', 'fa'], $status['advanced']['supported_profiles']);
+        $this->assertFalse($status['advanced']['phonetic_ready']);
+        $this->assertFalse($status['advanced']['split_ready']);
+        $this->assertFalse($status['advanced']['merge_ready']);
     }
 
     public function test_non_interactive_build_requires_force(): void

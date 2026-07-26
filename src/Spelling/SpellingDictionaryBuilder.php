@@ -7,6 +7,7 @@ use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Carbon;
 use RuntimeException;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
+use Zarbinco\PersianSearch\Correction\AdvancedCorrectionPolicy;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
 use Zarbinco\PersianSearch\Text\SearchTextPipeline;
 
@@ -18,6 +19,7 @@ final readonly class SpellingDictionaryBuilder
         private SearchTextPipeline $pipeline,
         private SymmetricDeleteGenerator $deletes,
         private DatabaseManager $database,
+        private ?AdvancedCorrectionPolicy $advanced = null,
     ) {}
 
     /** @param  list<string>  $locales */
@@ -236,7 +238,8 @@ final readonly class SpellingDictionaryBuilder
 
     private function eligible(string $token): bool
     {
-        return $this->policy->editDistanceFor($token) > 0;
+        return $this->policy->editDistanceFor($token) > 0
+            || ($this->advanced?->dictionaryNeedsToken($token) ?? false);
     }
 
     /**

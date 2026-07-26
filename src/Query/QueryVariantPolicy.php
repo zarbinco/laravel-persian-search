@@ -52,6 +52,28 @@ final readonly class QueryVariantPolicy
             );
         }
 
+        $advancedDefaults = self::compatibleAdvancedPriorities(
+            $values['keyboard_spelling'],
+            $values['synonym'],
+        );
+        foreach ($advancedDefaults as $key => $default) {
+            $values[$key] = self::configuredPriority($priorities, $key, $default);
+        }
+
+        if (! ($values['keyboard_spelling'] >= $values['phonetic']
+            && $values['phonetic'] >= $values['split']
+            && $values['split'] >= $values['merge']
+            && $values['merge'] >= $values['keyboard_phonetic']
+            && $values['keyboard_phonetic'] >= $values['keyboard_split']
+            && $values['keyboard_split'] >= $values['keyboard_merge']
+            && $values['keyboard_merge'] >= $values['synonym'])) {
+            throw InvalidQueryVariantConfigurationException::forValue(
+                'variants.priorities',
+                $priorities,
+                'must keep advanced correction provenance between keyboard spelling and synonym provenance',
+            );
+        }
+
         return new self($maximumVariants, $values);
     }
 
@@ -101,5 +123,30 @@ final readonly class QueryVariantPolicy
         }
 
         return [$keyboard, $synonym];
+    }
+
+    /**
+     * @return array{
+     *   phonetic: int,
+     *   split: int,
+     *   merge: int,
+     *   keyboard_phonetic: int,
+     *   keyboard_split: int,
+     *   keyboard_merge: int
+     * }
+     */
+    private static function compatibleAdvancedPriorities(int $upper, int $lower): array
+    {
+        $gap = max(0, $upper - $lower);
+        $priority = static fn (int $numerator): int => $lower + intdiv(($gap * $numerator) + 6, 7);
+
+        return [
+            'phonetic' => $priority(6),
+            'split' => $priority(5),
+            'merge' => $priority(4),
+            'keyboard_phonetic' => $priority(3),
+            'keyboard_split' => $priority(2),
+            'keyboard_merge' => $priority(1),
+        ];
     }
 }

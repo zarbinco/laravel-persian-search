@@ -33,7 +33,14 @@ final class DictionaryStatusCommand extends Command
                     ['Last built', $status->lastBuiltAt ?? 'never'],
                     ['Latest active document', $status->latestDocumentIndexedAt ?? 'none'],
                     ['Stale', $status->stale ? 'yes' : 'no'],
+                    ['Correction profiles', $status->supportedProfiles === [] ? 'none' : implode(', ', $status->supportedProfiles)],
+                    ['Phonetic ready', $status->phoneticReady ? 'yes' : 'no'],
+                    ['Split ready', $status->splitReady ? 'yes' : 'no'],
+                    ['Merge ready', $status->mergeReady ? 'yes' : 'no'],
                 ]);
+                foreach ($status->warnings as $warning) {
+                    $this->components->warn($warning);
+                }
             }
 
             return SearchOperationExitCode::Success->value;

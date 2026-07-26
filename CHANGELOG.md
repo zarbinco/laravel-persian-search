@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fix advanced correction to compose bounded dictionary-accepted phonetic
+  changes across multiple tokens, chain spelling-derived parents while
+  retaining complete provenance, and apply merge limits after dictionary
+  acceptance so invalid earlier adjacent pairs cannot hide valid later merges.
+- Add opt-in locale-profile phonetic correction and bounded dictionary-backed
+  one-token splitting/adjacent-pair merging with built-in conservative Persian
+  and English profiles, one-query candidate validation, typed transformation
+  chains, keyboard-derived provenance, effective suggestions, readiness
+  diagnostics, extension contracts, and no additional schema.
 - Add opt-in multilingual typo correction for insertion, deletion, substitution, and adjacent transposition errors using a document-derived symmetric-delete dictionary, weighted Unicode Damerau-Levenshtein verification, bounded query variants, typed correction provenance, effective Did You Mean evidence, package migrations, build/status commands, and public APIs.
 
 - Remove Laravel 11 and earlier support; require Laravel 12 on PHP 8.2+ from
