@@ -3,6 +3,7 @@
 namespace Zarbinco\PersianSearch\Search;
 
 use InvalidArgumentException;
+use Zarbinco\PersianSearch\Contextual\ContextualCorrection;
 use Zarbinco\PersianSearch\Correction\AdvancedCorrection;
 use Zarbinco\PersianSearch\Query\KeyboardCorrection;
 use Zarbinco\PersianSearch\Query\SynonymExpansion;
@@ -32,6 +33,7 @@ final readonly class QueryVariant
         array $appliedSynonyms = [],
         public ?SpellingCorrection $spellingCorrection = null,
         public ?AdvancedCorrection $advancedCorrection = null,
+        public ?ContextualCorrection $contextualCorrection = null,
     ) {
         if ($this->query === '') {
             throw new InvalidArgumentException('Query variant text must not be empty.');
@@ -97,6 +99,7 @@ final readonly class QueryVariant
             'keyboard_correction' => $this->keyboardCorrection?->toArray(),
             'spelling_correction' => $this->spellingCorrection?->toArray(),
             'advanced_correction' => $this->advancedCorrection?->toArray(),
+            'contextual_correction' => $this->contextualCorrection?->toArray(),
             'applied_synonyms' => array_map(
                 static fn (SynonymExpansion $expansion): array => $expansion->toArray(),
                 $this->appliedSynonyms,

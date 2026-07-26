@@ -37,7 +37,28 @@ final class DictionaryStatusCommand extends Command
                     ['Phonetic ready', $status->phoneticReady ? 'yes' : 'no'],
                     ['Split ready', $status->splitReady ? 'yes' : 'no'],
                     ['Merge ready', $status->mergeReady ? 'yes' : 'no'],
+                    ['Context n-gram table', $status->ngramsTable ?? 'not configured'],
+                    ['Context n-gram table ready', $status->ngramsTableExists ? 'yes' : 'no'],
+                    ['Context build metadata table', $status->buildsTable ?? 'not configured'],
+                    ['Context build metadata ready', $status->buildsTableExists ? 'yes' : 'no'],
+                    ['Context n-grams', $status->ngrams],
+                    ['Contextual ready', $status->contextualReady ? 'yes' : 'no'],
                 ]);
+                if ($status->localeNgramCounts !== []) {
+                    $this->table(
+                        ['Locale', 'N-grams', 'Last built', 'Ready'],
+                        array_map(
+                            static fn (string $locale, int $count): array => [
+                                $locale,
+                                $count,
+                                $status->ngramBuiltByLocale[$locale] ?? 'never',
+                                ($status->contextualReadyByLocale[$locale] ?? false) ? 'yes' : 'no',
+                            ],
+                            array_keys($status->localeNgramCounts),
+                            array_values($status->localeNgramCounts),
+                        ),
+                    );
+                }
                 foreach ($status->warnings as $warning) {
                     $this->components->warn($warning);
                 }

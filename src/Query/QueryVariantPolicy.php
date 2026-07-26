@@ -74,6 +74,20 @@ final readonly class QueryVariantPolicy
             );
         }
 
+        $values['contextual'] = self::configuredPriority(
+            $priorities,
+            'contextual',
+            self::compatibleContextualPriority($values['synonym'], $values['keyboard_synonym']),
+        );
+        if (! ($values['synonym'] >= $values['contextual']
+            && $values['contextual'] >= $values['keyboard_synonym'])) {
+            throw InvalidQueryVariantConfigurationException::forValue(
+                'variants.priorities.contextual',
+                $values['contextual'],
+                'must remain between synonym and keyboard_synonym provenance',
+            );
+        }
+
         return new self($maximumVariants, $values);
     }
 
@@ -148,5 +162,10 @@ final readonly class QueryVariantPolicy
             'keyboard_split' => $priority(2),
             'keyboard_merge' => $priority(1),
         ];
+    }
+
+    private static function compatibleContextualPriority(int $upper, int $lower): int
+    {
+        return $lower + intdiv(max(0, $upper - $lower), 2);
     }
 }

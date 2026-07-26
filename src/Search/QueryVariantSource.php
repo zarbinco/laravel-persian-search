@@ -15,6 +15,7 @@ enum QueryVariantSource: string
     case Merge = 'merge';
     case KeyboardMerge = 'keyboard_merge';
     case Synonym = 'synonym';
+    case Contextual = 'contextual';
     case KeyboardSynonym = 'keyboard_synonym';
 
     public function isSuggestionRoot(): bool
@@ -28,7 +29,8 @@ enum QueryVariantSource: string
             self::Split,
             self::KeyboardSplit,
             self::Merge,
-            self::KeyboardMerge => true,
+            self::KeyboardMerge,
+            self::Contextual => true,
             default => false,
         };
     }
@@ -41,6 +43,28 @@ enum QueryVariantSource: string
     public function isAdvanced(): bool
     {
         return match ($this) {
+            self::Phonetic,
+            self::KeyboardPhonetic,
+            self::Split,
+            self::KeyboardSplit,
+            self::Merge,
+            self::KeyboardMerge => true,
+            default => false,
+        };
+    }
+
+    public function isContextual(): bool
+    {
+        return $this === self::Contextual;
+    }
+
+    public function isContextualParent(): bool
+    {
+        return match ($this) {
+            self::Original,
+            self::Keyboard,
+            self::Spelling,
+            self::KeyboardSpelling,
             self::Phonetic,
             self::KeyboardPhonetic,
             self::Split,

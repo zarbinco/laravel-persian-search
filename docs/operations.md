@@ -295,3 +295,63 @@ status/representative queries, and then deploy the flag. Applications adding a
 profile should bind any constructor dependencies in Laravel and place its class
 in `spelling.phonetic.profiles`. Rebuild after profile or minimum-length
 changes. No arbitrary callbacks or per-query profile construction are used.
+
+## Contextual correction operations
+
+Real-word contextual correction requires the additive contextual n-gram
+migration. Upgrade in this order:
+
+```bash
+php artisan vendor:publish --tag=persian-search-migrations
+php artisan migrate
+php artisan persian-search:dictionary-build --force
+php artisan persian-search:dictionary-status
+```
+
+Keep `PERSIAN_SEARCH_CONTEXTUAL_CORRECTION_ENABLED=false` until migration and
+build complete. The existing build command now optionally reports context
+bigrams. A locale-filtered run stages and replaces only that locale; a full run
+replaces all locales. Active documents are chunked, per-document terms/grams
+and insert batches are bounded, and final rows are deleted only within the
+replacement transaction after staging succeeds. The unique staging token is
+cleaned on success or failure.
+
+Status reports the n-gram table, existence, count, contextual readiness, and a
+fixed warning if correction is enabled without a ready term dictionary or
+completed n-gram generation. It also reports per-locale n-gram counts, build times, and
+generation readiness from `persian_search_contextual_builds`. A dictionary
+operation invalidates the n-gram generation before term replacement and records
+the completed dictionary generation before staging. If staging or finalization
+fails, final rows remain intact but contextual readiness is false. Recover by
+fixing the database failure and rerunning
+`php artisan persian-search:dictionary-build --force`; do not enable contextual
+correction until status is ready. A successful matching generation with a
+completion timestamp is ready even when frequency filtering produces zero
+rows. Full rebuilds remove metadata for locales no longer present;
+locale-scoped rebuilds preserve other locale metadata.
+
+N-gram building, result counting, correction, and advisory auto-apply flags are
+independent. With result counting disabled, no parent/candidate result searches
+run, result evidence is serialized as unavailable, and decisions are
+suggest-only. With n-grams disabled, no n-gram query/readiness check runs and
+context evidence is neutral/unavailable. Preview evaluation stays off unless
+explicitly enabled.
+
+Runtime evidence reads fail soft only when the exact configured metadata or
+n-gram table is missing. Permission failures, missing columns, malformed SQL,
+and unrelated database errors are re-thrown for diagnosis.
+
+Tune `contextual.trigger`, `contextual.decision`, and `contextual.limits`
+conservatively. Runtime does no schema introspection. At or below the direct
+trigger it uses one batched term lookup, one batched delete lookup, bounded
+build-readiness and n-gram lookups, and no more candidate searches than
+`maximum_result_count_candidates` plus one memoized search per distinct
+non-original parent. Counts reuse eligible search semantics without hydration
+and cache locale/query/partition/type duplicates for the request.
+
+Applications may replace `QueryPopularityProvider` and
+`QueryClickSignalProvider` with normalized aggregate signals in `0..1`.
+Defaults are neutral. The package logs no queries, clicks, users, or personal
+data. Rebuild after bulk reindex, vocabulary/profile changes, or stale status.
+Transliteration, grammar correction, external search services, and UI
+auto-application are not part of this operation.

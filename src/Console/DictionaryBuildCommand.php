@@ -44,6 +44,7 @@ final class DictionaryBuildCommand extends Command
                     ['Documents scanned', $result->documents],
                     ['Dictionary terms', $result->terms],
                     ['Delete keys', $result->deletes],
+                    ['Context bigrams', $result->ngrams],
                 ]);
                 if ($result->localeTermCounts !== []) {
                     $this->table(

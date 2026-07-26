@@ -19,7 +19,8 @@ Laravel 12 with Testbench 10 and Laravel 13 with Testbench 11.
 Implemented behavior includes:
 
 - locale-aware text processing, wrong-keyboard correction, multilingual typo,
-  phonetic-confusion, split/merge correction, and synonym query variants;
+  phonetic-confusion, split/merge correction, opt-in real-word contextual
+  correction, and synonym query variants;
 - validated document providers, atomic indexing, and provider-aware lifecycle
   synchronization;
 - dependency-aware reindexing and exact cross-locale counterpart bridging;
@@ -43,6 +44,10 @@ php artisan persian-search:dictionary-build --force
 Typo, phonetic, and segmentation correction remain independently disabled
 until their corresponding environment flags are configured after a successful
 dictionary build. No SQL or external word list is imported manually.
+
+Real-word contextual correction is also disabled by default. After upgrading,
+publish and run its additive n-gram migration, rebuild the dictionary, inspect
+readiness, and only then enable it.
 
 The index connection, table, default partition, undefined locale, lifecycle flags, query expansion, limits, and basic ranking settings are configured in `config/persian-search.php`.
 
@@ -940,6 +945,105 @@ yield both locators. Reindex deduplicates those locators to one source/provider
 synchronization, while prune retains their distinct partition ownership.
 See [docs/operations.md](docs/operations.md) for configuration, examples, exit
 codes, failure semantics, and large-run limits.
+
+## Real-word contextual correction
+
+Non-word correction handles an unknown term such as `پرتفال`; advanced
+correction applies bounded phonetic or split/merge transformations; real-word
+contextual correction considers a valid dictionary term such as `پرتغال` only
+when contextual and eligible-result evidence strongly favours another valid
+term such as `پرتقال`. This is evidence-based search correction, not grammar
+correction or semantic understanding.
+
+The runtime first evaluates full-token-coverage results for the original user
+query and stops above the configured global trigger threshold. Only original,
+keyboard, spelling, phonetic, split, and merge parents (including their
+keyboard-derived forms) feed the batched candidate lookup; semantic synonym
+and contextual variants are never contextual parents. Candidates are pooled
+within strict bounds, globally ordered by corpus gain, lexical cost, corrected
+token count, parent priority, query bytes, and fingerprint, and only then
+limited. Original and candidate must coexist in the same
+exact/base-locale dictionary chain. Protected terms, unsafe query shapes,
+unsupported script switches, and over-limit candidates are rejected.
+
+Evidence combines dictionary document/title/keyword frequencies, bigrams on
+both sides of corrected positions, optional neutral application analytics, and
+capped eligible-result counts preserving locale, partition, active-record, and
+selected-type filters. Original results control only the global trigger;
+absolute, ratio, confidence, and parent-threshold decisions use each
+candidate's retained direct parent count. Parent and candidate counts require
+full token coverage, are memoized by locale/query/partition/types during one
+search, and report approximation honestly.
+
+Confidence is a bounded integer from `0` to `10000` built from lexical, corpus,
+context, result-gain, zero-direct-result, and optional analytics components.
+Policy also requires corpus/context advantage, available candidate results,
+absolute and ratio gains, and minimum confidence. `auto_apply_allowed` is
+advisory metadata and requires exact result evidence plus zero parent results;
+the optional zero-original safeguard remains configurable. The package never
+silently replaces the application query.
+
+```text
+PERSIAN_SEARCH_CONTEXTUAL_CORRECTION_ENABLED=false
+PERSIAN_SEARCH_CONTEXTUAL_NGRAMS_ENABLED=true
+PERSIAN_SEARCH_CONTEXTUAL_RESULT_COUNTS_ENABLED=true
+PERSIAN_SEARCH_CONTEXTUAL_AUTO_APPLY_RECOMMENDATION_ENABLED=false
+```
+
+```bash
+php artisan vendor:publish --tag=persian-search-migrations
+php artisan migrate
+php artisan persian-search:dictionary-build --force
+php artisan persian-search:dictionary-status
+```
+
+The build stages bounded bigrams in
+`persian_search_dictionary_ngram_staging`, then transactionally replaces target
+locale rows in `persian_search_dictionary_ngrams`. Locale-scoped builds preserve
+other locales. `persian_search_contextual_builds` records independent
+dictionary and n-gram generations per locale. Status exposes per-locale n-gram
+counts, build times, generation readiness, and fixed warnings. A completed
+matching generation is ready even when filtering legitimately produces zero
+n-gram rows. Full rebuilds remove metadata for locales no longer present, while
+locale-scoped builds preserve other locales. If a term build succeeds but
+n-gram staging fails, readiness remains false; rerun
+`persian-search:dictionary-build --force` to recover.
+
+```php
+$results = PersianSearch::query('پرتغال')->locale('fa')->type('page')->results();
+$context = $results->suggestion?->contextualCorrection;
+
+$context?->confidence->value; // high
+$context?->decision->value;   // suggest_only or auto_apply_allowed
+$context?->directResults->count;
+$context?->parentResults->count;
+$context?->candidateResults->count;
+$context?->candidateResults->isAvailable;
+```
+
+`ContextualCorrectionEvaluator`, `CorrectionEvidenceProvider`, and
+`CandidateResultCounter` are container-resolvable public boundaries.
+`QueryVariantResultCounter` is the additive parent-count boundary.
+Applications may replace `QueryPopularityProvider` and
+`QueryClickSignalProvider`; neutral defaults return zero and the package stores
+no queries, clicks, users, or analytics.
+`PersianSearch::contextualCorrectionEvaluator()` exposes the evaluator.
+
+The n-gram and result-count flags are independent. With result counts disabled,
+no parent/candidate count searches run, serialized count evidence is explicitly
+unavailable, the gain thresholds are skipped, and decisions are
+`suggest_only`. With n-grams disabled, no n-gram query or readiness requirement
+is used and the context component is neutral rather than negative.
+Missing configured contextual tables make n-gram evidence unavailable;
+permissions, missing columns, malformed SQL, and other database failures are
+re-thrown.
+
+Contextual evaluation is off for previews by default and independently bounded
+by query size, inspected/corrected tokens, alternatives, retained candidates,
+result-count candidates, context lookups, delete keys, rows, transformation
+depth, and the count cap. Transliteration, translation, neural models,
+embeddings, general grammar correction, click logging, application UI, and
+forced auto-application remain out of scope.
 
 ## Architecture and boundaries
 

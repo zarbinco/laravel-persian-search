@@ -67,6 +67,106 @@ final class EffectiveSearchSuggestionIntegrityTest extends TestCase
         $this->assertSame(0, $tokenizer->calls);
     }
 
+    public function test_contextual_priority_replacement_keeps_a_valid_suggestion_lineage(): void
+    {
+        $tokenizer = new RecordingSearchTokenizer;
+        $original = new QueryVariant(
+            'original',
+            'en',
+            ['original'],
+            QueryVariantSource::Original,
+            1000,
+            'original',
+        );
+        $low = new QueryVariant(
+            'low',
+            'en',
+            ['low'],
+            QueryVariantSource::KeyboardSynonym,
+            400,
+            'low',
+            'original',
+        );
+        $contextual = new QueryVariant(
+            'corrected',
+            'en',
+            ['corrected'],
+            QueryVariantSource::Contextual,
+            500,
+            'contextual',
+            'original',
+        );
+        $variants = (new QueryVariantCollection(2, [$original, $low]))
+            ->withPriorityReplacement($contextual);
+
+        $suggestion = $this->evaluator($tokenizer)->evaluate(
+            new SearchRankedCandidateCollection([]),
+            $variants,
+            true,
+            'original',
+        );
+
+        $this->assertNull($suggestion);
+        $this->assertTrue($variants->contains('original'));
+        $this->assertTrue($variants->contains('contextual'));
+        $this->assertCount(2, $variants);
+    }
+
+    public function test_semantic_duplicate_no_op_keeps_the_existing_suggestion_lineage_valid(): void
+    {
+        $tokenizer = new RecordingSearchTokenizer;
+        $original = new QueryVariant(
+            'original',
+            'en',
+            ['original'],
+            QueryVariantSource::Original,
+            1000,
+            'original',
+        );
+        $existing = new QueryVariant(
+            'corrected',
+            'en',
+            ['corrected'],
+            QueryVariantSource::Spelling,
+            700,
+            'existing',
+            'original',
+        );
+        $leaf = new QueryVariant(
+            'leaf',
+            'en',
+            ['leaf'],
+            QueryVariantSource::KeyboardSynonym,
+            400,
+            'leaf',
+            'existing',
+        );
+        $duplicate = new QueryVariant(
+            'corrected',
+            'en',
+            ['corrected'],
+            QueryVariantSource::Contextual,
+            500,
+            'duplicate',
+            'original',
+        );
+        $variants = (new QueryVariantCollection(3, [$original, $existing, $leaf]))
+            ->withPriorityReplacement($duplicate);
+
+        $suggestion = $this->evaluator($tokenizer)->evaluate(
+            new SearchRankedCandidateCollection([]),
+            $variants,
+            true,
+            'original',
+        );
+
+        $this->assertNull($suggestion);
+        $this->assertSame(['original', 'existing', 'leaf'], array_map(
+            static fn (QueryVariant $variant): string => $variant->fingerprint,
+            $variants->all(),
+        ));
+    }
+
     private function evaluator(RecordingSearchTokenizer $tokenizer): EffectiveSearchSuggestionEvaluator
     {
         return new EffectiveSearchSuggestionEvaluator(

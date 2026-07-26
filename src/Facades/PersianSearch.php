@@ -5,6 +5,7 @@ namespace Zarbinco\PersianSearch\Facades;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
 use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
+use Zarbinco\PersianSearch\Contracts\ContextualCorrectionEvaluator;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
@@ -55,6 +56,7 @@ use Zarbinco\PersianSearch\Text\SearchTextPipeline;
  * @method static \Zarbinco\PersianSearch\Spelling\SpellingCorrectionCollection spellingCorrections(\Zarbinco\PersianSearch\Search\ProcessedSearchQuery $query)
  * @method static AdvancedQueryCorrector|null advancedCorrector()
  * @method static \Zarbinco\PersianSearch\Correction\AdvancedCorrectionCollection advancedCorrections(\Zarbinco\PersianSearch\Search\ProcessedSearchQuery $query)
+ * @method static ContextualCorrectionEvaluator|null contextualCorrectionEvaluator()
  */
 final class PersianSearch extends Facade
 {

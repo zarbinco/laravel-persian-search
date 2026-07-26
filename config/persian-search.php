@@ -122,6 +122,7 @@ return [
             'keyboard_split' => 610,
             'keyboard_merge' => 605,
             'synonym' => 600,
+            'contextual' => 500,
             'keyboard_synonym' => 400,
         ],
     ],
@@ -241,6 +242,61 @@ return [
                 'ظ' => ['ط'], 'ط' => ['ظ', 'ز'], 'ز' => ['ط', 'ر'], 'ر' => ['ز', 'ذ'],
                 'ذ' => ['ر', 'د'], 'د' => ['ذ', 'پ'], 'پ' => ['د', 'و'], 'و' => ['پ'],
             ],
+        ],
+    ],
+
+    'contextual' => [
+        'enabled' => env('PERSIAN_SEARCH_CONTEXTUAL_CORRECTION_ENABLED', false),
+        'ngrams_enabled' => env('PERSIAN_SEARCH_CONTEXTUAL_NGRAMS_ENABLED', true),
+        'result_counts_enabled' => env('PERSIAN_SEARCH_CONTEXTUAL_RESULT_COUNTS_ENABLED', true),
+        'auto_apply_recommendation_enabled' => env(
+            'PERSIAN_SEARCH_CONTEXTUAL_AUTO_APPLY_RECOMMENDATION_ENABLED',
+            false,
+        ),
+        'connection' => null,
+        'ngrams_table' => 'persian_search_dictionary_ngrams',
+        'ngram_staging_table' => 'persian_search_dictionary_ngram_staging',
+        'builds_table' => 'persian_search_contextual_builds',
+
+        'build' => [
+            'enabled' => true,
+            'maximum_gram_size' => 2,
+            'minimum_document_frequency' => 1,
+            'maximum_terms_per_document' => 200,
+            'maximum_ngrams_per_document' => 400,
+            'insert_batch_size' => 500,
+        ],
+
+        'trigger' => [
+            'maximum_direct_results' => 3,
+            'evaluate_when_zero_results' => true,
+            'evaluate_when_low_results' => true,
+            'evaluate_on_preview' => false,
+        ],
+
+        'decision' => [
+            'minimum_confidence_basis_points' => 7500,
+            'minimum_absolute_result_gain' => 3,
+            'minimum_result_gain_ratio_basis_points' => 30000,
+            'auto_apply_minimum_confidence_basis_points' => 9000,
+            'auto_apply_requires_zero_direct_results' => true,
+            'minimum_corpus_gain' => 1,
+            'minimum_context_gain' => 0,
+        ],
+
+        'limits' => [
+            'maximum_tokens_to_inspect' => 5,
+            'maximum_tokens_to_correct' => 2,
+            'maximum_candidates_per_token' => 3,
+            'maximum_candidates_per_query' => 5,
+            'maximum_result_count_candidates' => 3,
+            'maximum_context_lookups' => 20,
+            'maximum_transformation_depth' => 3,
+            'maximum_query_length' => 200,
+            'maximum_query_tokens' => 20,
+            'result_count_cap' => 11,
+            'maximum_candidate_rows' => 300,
+            'maximum_delete_keys' => 512,
         ],
     ],
 

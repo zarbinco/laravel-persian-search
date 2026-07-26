@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Add opt-in multilingual real-word contextual correction for valid dictionary
+  terms using bounded symmetric-delete/phonetic candidates, unigram and bigram
+  evidence, capped eligible-result comparisons, deterministic confidence and
+  advisory decisions, structured provenance, neutral analytics extension
+  points, staged n-gram rebuilds, readiness diagnostics, and an additive
+  package migration.
+- Fix contextual correction to compare gain with each retained parent, admit
+  high-priority contextual variants into full collections without breaking
+  lineage, rank bounded candidates globally across supported non-semantic
+  parents, keep result-count/n-gram flags independent, block approximate
+  auto-apply advice, and track per-locale dictionary/n-gram generations.
+- Fix full-capacity contextual insertion to deduplicate by locale and query
+  before victim selection, restrict fail-soft evidence reads to genuinely
+  missing configured tables, treat successful zero-row n-gram generations as
+  ready, and remove obsolete locale metadata after full rebuilds.
 - Fix advanced correction to compose bounded dictionary-accepted phonetic
   changes across multiple tokens, chain spelling-derived parents while
   retaining complete provenance, and apply merge limits after dictionary

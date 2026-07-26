@@ -43,3 +43,29 @@ generation. Custom profiles must emit valid Unicode terms, finite iterables,
 positive costs, one-character separators, stable locale metadata, and
 non-sensitive rule identifiers. The engine stops consuming alternatives at the
 configured bound even if an extension yields indefinitely.
+
+Contextual correction accepts only safe Unicode word tokens that already exist
+in the exact/base-locale dictionary. It rejects control/bidi characters, URLs,
+emails, decimal forms, code-like syntax, identifiers, protected terms,
+oversized queries, and excess tokens before candidate work. Dynamic connection
+and table names are validated configuration identifiers; locales, hashes,
+terms, partitions, and type filters remain bound SQL values. There is no
+database-side edit distance, dictionary scan, per-row lookup, or unbounded
+n-gram generation.
+
+Keep contextual token, delete-key, candidate-row, composition, context-lookup,
+result-count, query-length, and count-cap limits finite. Staging tables are
+package-owned, build tokens are random, and final n-grams change only after
+bounded staging succeeds. Fail-soft runtime paths catch only recognized missing
+package tables and rethrow unrelated database failures.
+
+Result gain is measured against the retained direct parent with
+locale/partition/type memoization. Approximate or unavailable evidence cannot
+authorize auto-apply. Full-collection insertion protects Original and every
+retained lineage node. Per-locale dictionary/n-gram generation mismatches keep
+contextual readiness false after partial or cross-connection build failures.
+
+Optional popularity and click providers are evidence interfaces only. The
+package persists no query analytics, click events, user identifiers, telemetry,
+or personal data. Applications implementing them own consent, retention,
+minimization, access control, and normalized aggregate output.

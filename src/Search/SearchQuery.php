@@ -38,6 +38,23 @@ final readonly class SearchQuery
         return $this->variants;
     }
 
+    public function withVariants(QueryVariantCollection $variants): self
+    {
+        return new self(
+            original: $this->original,
+            normalized: $this->normalized,
+            tokens: $this->tokens,
+            sourceTypes: $this->sourceTypes,
+            locale: $this->locale,
+            partition: $this->partition,
+            limit: $this->limit,
+            offset: $this->offset,
+            processedQuery: $this->processedQuery,
+            variants: $variants,
+            facetFields: $this->facetFields,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {

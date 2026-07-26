@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Throwable;
 use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
+use Zarbinco\PersianSearch\Contracts\ContextualCorrectionEvaluator;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
@@ -47,6 +48,7 @@ final class PersianSearchManager
         private readonly EmptySearchResultFactory $emptyResults,
         private readonly ?SpellingCorrector $spelling = null,
         private readonly ?AdvancedQueryCorrector $advanced = null,
+        private readonly ?ContextualCorrectionEvaluator $contextual = null,
     ) {}
 
     public function textPipeline(): SearchTextPipeline
@@ -100,6 +102,11 @@ final class PersianSearchManager
         return $original === null || $this->advanced === null
             ? new AdvancedCorrectionCollection(1)
             : $this->advanced->correct($original);
+    }
+
+    public function contextualCorrectionEvaluator(): ?ContextualCorrectionEvaluator
+    {
+        return $this->contextual;
     }
 
     public function queryProcessor(): SearchQueryProcessor

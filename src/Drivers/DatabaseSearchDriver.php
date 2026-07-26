@@ -4,6 +4,7 @@ namespace Zarbinco\PersianSearch\Drivers;
 
 use Zarbinco\PersianSearch\Contracts\SearchDriver;
 use Zarbinco\PersianSearch\Exceptions\SearchResultWindowExceededException;
+use Zarbinco\PersianSearch\Search\QueryVariantSource;
 use Zarbinco\PersianSearch\Search\SearchExecutionProcessor;
 use Zarbinco\PersianSearch\Search\SearchFacetBuilder;
 use Zarbinco\PersianSearch\Search\SearchPage;
@@ -18,6 +19,7 @@ use Zarbinco\PersianSearch\Search\SearchResultHydrator;
 use Zarbinco\PersianSearch\Search\SearchResultPolicy;
 use Zarbinco\PersianSearch\Search\SearchResults;
 use Zarbinco\PersianSearch\Search\SearchResultSlice;
+use Zarbinco\PersianSearch\Search\SearchSuggestion;
 
 final readonly class DatabaseSearchDriver implements SearchDriver
 {
@@ -31,6 +33,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
     public function search(SearchQuery $query): SearchResults
     {
         $context = $this->execution->process($query);
+        $query = $context->query ?? $query;
         $window = $context->window;
         $facets = $this->facets->build($window, $query->facetFields);
         $slice = SearchResultSlice::fromWindow($window, $query->offset, $query->limit);
@@ -42,13 +45,14 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $facets,
             $slice->offset,
             $slice->limit,
-            $context->suggestion,
+            $this->visibleSuggestion($context->suggestion, $slice->candidates),
         );
     }
 
     public function paginate(SearchQuery $query, SearchPaginationRequest $request): SearchPage
     {
         $context = $this->execution->process($query);
+        $query = $context->query ?? $query;
         $window = $context->window;
 
         if ($window->isTruncated() && $request->offset >= $window->knownTotal()) {
@@ -79,13 +83,14 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $query->processedQuery,
             $query->variants(),
             $facets,
-            $context->suggestion,
+            $this->visibleSuggestion($context->suggestion, $slice->candidates),
         );
     }
 
     public function preview(SearchQuery $query, int $limit, int $perType): SearchPreview
     {
-        $context = $this->execution->process($query);
+        $context = $this->execution->process($query, true);
+        $query = $context->query ?? $query;
         $window = $context->window;
         $selected = [];
         $typeCounts = [];
@@ -125,7 +130,7 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $window->isTruncated(),
             $facets,
             $window->truncationReasons,
-            $context->suggestion,
+            $this->visibleSuggestion($context->suggestion, array_values($selected)),
         );
     }
 
@@ -189,7 +194,24 @@ final readonly class DatabaseSearchDriver implements SearchDriver
             $returnedGroups === $knownGroupTotal,
             $returnedGroups !== $knownGroupTotal,
             $this->resultPolicy->maximumGroups,
-            $context->suggestion,
+            $this->visibleSuggestion($context->suggestion, array_values($selected)),
         );
+    }
+
+    /** @param list<SearchPresentedCandidate> $candidates */
+    private function visibleSuggestion(?SearchSuggestion $suggestion, array $candidates): ?SearchSuggestion
+    {
+        if ($suggestion === null || $suggestion->source !== QueryVariantSource::Contextual) {
+            return $suggestion;
+        }
+        foreach ($candidates as $candidate) {
+            foreach ($candidate->matchedCandidate->candidate->matches as $match) {
+                if ($match->variant->fingerprint === $suggestion->variantFingerprint) {
+                    return $suggestion;
+                }
+            }
+        }
+
+        return null;
     }
 }

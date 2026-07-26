@@ -6,6 +6,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Carbon;
 use RuntimeException;
+use Zarbinco\PersianSearch\Contextual\ContextualNgramBuilder;
 use Zarbinco\PersianSearch\Contracts\SearchTokenizer;
 use Zarbinco\PersianSearch\Correction\AdvancedCorrectionPolicy;
 use Zarbinco\PersianSearch\Models\SearchDocumentRecord;
@@ -20,6 +21,7 @@ final readonly class SpellingDictionaryBuilder
         private SymmetricDeleteGenerator $deletes,
         private DatabaseManager $database,
         private ?AdvancedCorrectionPolicy $advanced = null,
+        private ?ContextualNgramBuilder $contextual = null,
     ) {}
 
     /** @param  list<string>  $locales */
@@ -131,6 +133,7 @@ final readonly class SpellingDictionaryBuilder
         /** @var positive-int $insertBatchSize */
         $insertBatchSize = max(1, $this->policy->insertBatchSize);
 
+        $this->contextual?->markDictionaryRebuilt($locales);
         $deleteCount = $connection->transaction(function () use ($connection, $insertBatchSize, $locales, $termRows): int {
             $this->deleteExisting($connection, $locales);
             foreach (array_chunk($termRows, $insertBatchSize) as $chunk) {
@@ -176,7 +179,17 @@ final readonly class SpellingDictionaryBuilder
             return $inserted;
         }, 3);
 
-        return new SpellingDictionaryBuildResult($documents, count($termRows), $deleteCount, $localeTermCounts);
+        $this->contextual?->markDictionaryRebuilt($locales);
+        $ngrams = $this->contextual?->rebuild($locales);
+
+        return new SpellingDictionaryBuildResult(
+            documents: $documents,
+            terms: count($termRows),
+            deletes: $deleteCount,
+            localeTermCounts: $localeTermCounts,
+            ngrams: $ngrams === null ? 0 : $ngrams->ngrams,
+            localeNgramCounts: $ngrams === null ? [] : $ngrams->localeCounts,
+        );
     }
 
     /** @param  list<string>  $locales */

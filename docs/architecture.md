@@ -744,3 +744,79 @@ final class StaticResourceProvider implements SearchDocumentProvider
 ```
 
 Because `resource` is not an Eloquent model class, matching results remain complete document results with `model === null`.
+
+## Real-word contextual correction
+
+Contextual correction is a post-ranking, opt-in stage separate from the
+non-word correction path. `SearchExecutionProcessor` retrieves and ranks existing
+variants first. `DatabaseCandidateResultCounter` counts original matches with
+full token coverage; above the trigger, no contextual dictionary or n-gram work
+runs. Preview evaluation is independently disabled by default.
+
+`DatabaseContextualCandidateGenerator` accepts only original, keyboard,
+spelling, phonetic, split, and merge lineage parents—not synonym or contextual
+variants—and only exact dictionary terms. It then reuses symmetric-delete
+neighbours and bounded locale-profile phonetic alternatives. Term and
+delete-key queries are batched across retained parents.
+Weighted distance, same-locale-chain existence, protected terms, safe Unicode
+words, token order, query size, state count, and transformation depth are
+enforced before a candidate survives. A bounded cross-parent pool is globally
+ordered by corpus gain, lexical cost, corrected-token count, parent priority,
+binary query, and fingerprint before the configured final limit. Contextual
+output never recursively feeds generation, and vocabulary is never scanned.
+
+`DatabaseCorrectionEvidenceProvider` executes one hash-indexed bigram lookup
+for all bounded candidates. Unigram evidence comes from the existing term
+dictionary. Bigram evidence covers the preceding and following pairs touching
+each corrected position. The final n-gram table indexes a SHA-256 identity
+rather than oversized normalized text. Optional popularity and click contracts
+default to zero and create no storage.
+
+For each retained evidence candidate, `DatabaseCandidateResultCounter` creates
+single-variant parent or contextual `SearchQuery` values, invokes the existing
+candidate driver/ranker, requires full token coverage, preserves
+locale/partition/type filters, caps and marks counts honestly, and memoizes
+locale/query/partition/type duplicates during the request. Original results
+control the global trigger; parent results control gain, threshold, confidence,
+and zero-parent auto-apply checks. It does not hydrate models or fetch result
+pages.
+
+Confidence uses `0..10000`: lexical similarity contributes at most 2500,
+corpus advantage 2500, bigram context 2000 (or neutral 1000 when unavailable),
+eligible-result gain 3000, zero direct results 1000, and optional normalized
+analytics 500, followed by a 10000 cap. Policy enforces corpus/context
+advantage, candidate results, absolute/ratio gains, and minimum confidence.
+When result counts are disabled, result evidence is explicitly unavailable,
+gain thresholds are not fabricated, and only `suggest_only` is possible. When
+n-grams are disabled, context is unavailable/neutral and no n-gram query or
+minimum-context rule runs. The exact original remains retained and the package
+never forces auto-application.
+
+The additive migration owns final/private staging n-gram tables and a
+per-locale build-generation table. A dictionary operation invalidates the
+n-gram generation before term replacement, records the completed dictionary
+generation after replacement, and only then stages n-grams. A successful staged n-gram
+replacement finalizes only the matching generation; a failure preserves final
+rows but readiness remains false. Generation equality plus a completed n-gram
+timestamp defines readiness, including successful builds that legitimately
+produce zero rows. Full rebuilds remove metadata for locales no longer present;
+locale-scoped rebuilds leave other locale metadata untouched. Missing configured
+metadata or n-gram tables degrade evidence to unavailable, while permissions,
+missing columns, malformed SQL, and other query failures are rethrown. The marker write and term replacement cannot
+be atomic when configured on different connections, so the implementation
+fails conservatively and does not claim cross-connection atomicity.
+
+When the query-variant collection is full, contextual insertion may replace
+only a lower-priority leaf. Original, the contextual parent, all ancestors, and
+every retained parent node are protected. Equal/higher-priority variants are
+not displaced. A locale/query semantic duplicate is resolved before general
+victim selection: only that exact duplicate may be replaced, and only when it
+is a lower-priority unprotected leaf. The maximum remains exact, and
+deterministic victim ordering prevents broken lineage.
+
+```text
+normalization → original/keyboard → non-word spelling → advanced correction
+→ initial retrieve/rank → direct full-coverage count → contextual candidates
+→ batched corpus/context evidence → bounded memoized candidate counts
+→ confidence/decision → contextual variants → final retrieve/rank/suggestion
+```

@@ -3,6 +3,7 @@
     "description": "Persian-aware document search, multilingual typo correction, query expansion, indexing, and relevance tools for Laravel.",
     "type": "library",
     "keywords": [
+        "contextual-search",
         "did-you-mean",
         "eloquent",
         "farsi",
@@ -15,6 +16,7 @@
         "persian-search",
         "phonetic-search",
         "query-expansion",
+        "real-word-correction",
         "search",
         "spelling-correction",
         "typo-tolerance",

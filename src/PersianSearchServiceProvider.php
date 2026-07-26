@@ -19,8 +19,23 @@ use Zarbinco\PersianSearch\Console\InstallCommand;
 use Zarbinco\PersianSearch\Console\PruneCommand;
 use Zarbinco\PersianSearch\Console\ReindexCommand;
 use Zarbinco\PersianSearch\Console\StatusCommand;
+use Zarbinco\PersianSearch\Contextual\ContextualCorrectionPolicy;
+use Zarbinco\PersianSearch\Contextual\ContextualCorrectionPolicyFactory;
+use Zarbinco\PersianSearch\Contextual\ContextualNgramBuilder;
+use Zarbinco\PersianSearch\Contextual\DatabaseCandidateResultCounter;
+use Zarbinco\PersianSearch\Contextual\DatabaseContextualCandidateGenerator;
+use Zarbinco\PersianSearch\Contextual\DatabaseCorrectionEvidenceProvider;
+use Zarbinco\PersianSearch\Contextual\DefaultContextualCorrectionEvaluator;
+use Zarbinco\PersianSearch\Contextual\NeutralQueryClickSignalProvider;
+use Zarbinco\PersianSearch\Contextual\NeutralQueryPopularityProvider;
 use Zarbinco\PersianSearch\Contracts\AdvancedQueryCorrector;
+use Zarbinco\PersianSearch\Contracts\CandidateResultCounter;
+use Zarbinco\PersianSearch\Contracts\ContextualCorrectionEvaluator;
+use Zarbinco\PersianSearch\Contracts\CorrectionEvidenceProvider;
+use Zarbinco\PersianSearch\Contracts\QueryClickSignalProvider;
 use Zarbinco\PersianSearch\Contracts\QueryExpander;
+use Zarbinco\PersianSearch\Contracts\QueryPopularityProvider;
+use Zarbinco\PersianSearch\Contracts\QueryVariantResultCounter;
 use Zarbinco\PersianSearch\Contracts\SearchCandidateDriver;
 use Zarbinco\PersianSearch\Contracts\SearchDependencyPendingState;
 use Zarbinco\PersianSearch\Contracts\SearchDocumentProvider;
@@ -211,6 +226,23 @@ final class PersianSearchServiceProvider extends ServiceProvider
         });
         $this->app->singleton(DatabaseAdvancedQueryCorrector::class, DatabaseAdvancedQueryCorrector::class);
         $this->app->alias(DatabaseAdvancedQueryCorrector::class, AdvancedQueryCorrector::class);
+        $this->app->singleton(ContextualCorrectionPolicyFactory::class, ContextualCorrectionPolicyFactory::class);
+        $this->app->singleton(ContextualCorrectionPolicy::class, function ($app): ContextualCorrectionPolicy {
+            return $app->make(ContextualCorrectionPolicyFactory::class)->make();
+        });
+        $this->app->singleton(NeutralQueryPopularityProvider::class, NeutralQueryPopularityProvider::class);
+        $this->app->alias(NeutralQueryPopularityProvider::class, QueryPopularityProvider::class);
+        $this->app->singleton(NeutralQueryClickSignalProvider::class, NeutralQueryClickSignalProvider::class);
+        $this->app->alias(NeutralQueryClickSignalProvider::class, QueryClickSignalProvider::class);
+        $this->app->singleton(ContextualNgramBuilder::class, ContextualNgramBuilder::class);
+        $this->app->singleton(DatabaseContextualCandidateGenerator::class, DatabaseContextualCandidateGenerator::class);
+        $this->app->singleton(DatabaseCorrectionEvidenceProvider::class, DatabaseCorrectionEvidenceProvider::class);
+        $this->app->alias(DatabaseCorrectionEvidenceProvider::class, CorrectionEvidenceProvider::class);
+        $this->app->singleton(DatabaseCandidateResultCounter::class, DatabaseCandidateResultCounter::class);
+        $this->app->alias(DatabaseCandidateResultCounter::class, CandidateResultCounter::class);
+        $this->app->alias(DatabaseCandidateResultCounter::class, QueryVariantResultCounter::class);
+        $this->app->singleton(DefaultContextualCorrectionEvaluator::class, DefaultContextualCorrectionEvaluator::class);
+        $this->app->alias(DefaultContextualCorrectionEvaluator::class, ContextualCorrectionEvaluator::class);
 
         $this->app->singleton(QueryVariantPolicy::class, function (): QueryVariantPolicy {
             $variants = config('persian-search.variants', []);
@@ -408,6 +440,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
                 $app->make(EmptySearchResultFactory::class),
                 $app->make(SpellingCorrector::class),
                 $app->make(AdvancedQueryCorrector::class),
+                $app->make(ContextualCorrectionEvaluator::class),
             );
         });
 
@@ -429,6 +462,7 @@ final class PersianSearchServiceProvider extends ServiceProvider
         $migrations = [
             __DIR__.'/../database/migrations/create_persian_search_documents_table.php' => database_path('migrations/create_persian_search_documents_table.php'),
             __DIR__.'/../database/migrations/create_persian_search_dictionary_tables.php' => database_path('migrations/create_persian_search_dictionary_tables.php'),
+            __DIR__.'/../database/migrations/create_persian_search_contextual_ngrams_table.php' => database_path('migrations/create_persian_search_contextual_ngrams_table.php'),
         ];
 
         $this->publishesMigrations($migrations, 'persian-search-migrations');

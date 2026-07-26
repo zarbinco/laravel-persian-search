@@ -143,6 +143,7 @@ final readonly class EffectiveSearchSuggestionEvaluator
             $winner['variant']->source,
             $winner['variant']->fingerprint,
             $winner['evidence'],
+            $winner['variant']->contextualCorrection,
         );
     }
 

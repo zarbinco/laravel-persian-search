@@ -93,6 +93,70 @@ final class SearchCandidatePolicyTest extends TestCase
         $this->assertSame(QueryVariantSource::Synonym, $plans[1]->variant->source);
     }
 
+    public function test_plan_execution_orders_contextual_variants_before_lower_priority_variants(): void
+    {
+        $original = new QueryVariant('original', 'en', ['original'], QueryVariantSource::Original, 1000, 'original');
+        $low = new QueryVariant(
+            'low',
+            'en',
+            ['low'],
+            QueryVariantSource::Synonym,
+            450,
+            'low',
+            'original',
+        );
+        $victim = new QueryVariant(
+            'victim',
+            'en',
+            ['victim'],
+            QueryVariantSource::KeyboardSynonym,
+            400,
+            'victim',
+            'original',
+        );
+        $contextual = new QueryVariant(
+            'corrected',
+            'en',
+            ['corrected'],
+            QueryVariantSource::Contextual,
+            500,
+            'contextual',
+            'original',
+        );
+        $variants = (new QueryVariantCollection(3, [$original, $low, $victim]))
+            ->withPriorityReplacement($contextual);
+        $plans = (new SearchCandidatePlanBuilder(new SearchCandidatePolicy(10, 100, 500)))
+            ->build($this->makeSearchQuery($variants));
+
+        $this->assertSame([
+            QueryVariantSource::Original,
+            QueryVariantSource::Contextual,
+            QueryVariantSource::Synonym,
+        ], array_map(
+            static fn ($plan): QueryVariantSource => $plan->variant->source,
+            $plans,
+        ));
+    }
+
+    public function test_plan_execution_never_contains_semantically_duplicate_variants_after_capacity_replacement(): void
+    {
+        $original = new QueryVariant('original', 'en', ['original'], QueryVariantSource::Original, 1000, 'original');
+        $existing = new QueryVariant('corrected', 'en', ['corrected'], QueryVariantSource::Spelling, 700, 'existing', 'original');
+        $leaf = new QueryVariant('leaf', 'en', ['leaf'], QueryVariantSource::Synonym, 400, 'leaf', 'original');
+        $contextual = new QueryVariant('corrected', 'en', ['corrected'], QueryVariantSource::Contextual, 500, 'contextual', 'original');
+        $variants = (new QueryVariantCollection(3, [$original, $existing, $leaf]))
+            ->withPriorityReplacement($contextual);
+        $plans = (new SearchCandidatePlanBuilder(new SearchCandidatePolicy(10, 100, 500)))
+            ->build($this->makeSearchQuery($variants));
+
+        $this->assertSame(['original', 'corrected', 'leaf'], array_map(
+            static fn ($plan): string => $plan->variant->query,
+            $plans,
+        ));
+        $this->assertTrue($variants->contains('leaf'));
+        $this->assertFalse($variants->contains('contextual'));
+    }
+
     private function makeSearchQuery(QueryVariantCollection $variants): SearchQuery
     {
         $processed = new ProcessedSearchQuery(

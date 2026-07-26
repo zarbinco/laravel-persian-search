@@ -34,6 +34,108 @@ final class QueryVariantCollection implements Countable, IteratorAggregate
         return $collection;
     }
 
+    public function withPriorityReplacement(QueryVariant $variant): self
+    {
+        $collection = clone $this;
+        if (! $collection->isFull()) {
+            $collection->insert($variant);
+
+            return $collection;
+        }
+
+        foreach ($collection->variants as $existing) {
+            if ($existing->fingerprint === $variant->fingerprint) {
+                return $collection;
+            }
+        }
+
+        $byFingerprint = [];
+        $parents = [];
+        foreach ($collection->variants as $existing) {
+            $byFingerprint[$existing->fingerprint] = $existing;
+            if ($existing->parentFingerprint !== null) {
+                $parents[$existing->parentFingerprint] = true;
+            }
+        }
+
+        $protected = [];
+        $fingerprint = $variant->parentFingerprint;
+        while ($fingerprint !== null) {
+            $parent = $byFingerprint[$fingerprint] ?? null;
+            if ($parent === null || isset($protected[$fingerprint])) {
+                return $collection;
+            }
+            $protected[$fingerprint] = true;
+            $fingerprint = $parent->parentFingerprint;
+        }
+
+        $victim = null;
+        foreach ($collection->variants as $index => $existing) {
+            if ($existing->semanticKey() === $variant->semanticKey()) {
+                if ($existing->source === QueryVariantSource::Original
+                    || isset($protected[$existing->fingerprint])
+                    || isset($parents[$existing->fingerprint])
+                    || $existing->priority >= $variant->priority) {
+                    return $collection;
+                }
+
+                $victim = ['index' => $index, 'variant' => $existing];
+
+                break;
+            }
+        }
+
+        if ($victim === null) {
+            $victims = [];
+            foreach ($collection->variants as $index => $existing) {
+                if ($existing->source === QueryVariantSource::Original
+                    || isset($protected[$existing->fingerprint])
+                    || isset($parents[$existing->fingerprint])
+                    || $existing->priority >= $variant->priority) {
+                    continue;
+                }
+                $victims[] = ['index' => $index, 'variant' => $existing];
+            }
+            usort($victims, static fn (array $left, array $right): int => $left['variant']->priority <=> $right['variant']->priority
+                ?: strcmp($left['variant']->source->value, $right['variant']->source->value)
+                ?: strcmp($left['variant']->fingerprint, $right['variant']->fingerprint));
+            $victim = $victims[0] ?? null;
+            if ($victim === null) {
+                return $collection;
+            }
+        }
+
+        $replaced = [];
+        $inserted = false;
+        foreach ($collection->variants as $index => $existing) {
+            if ($index === $victim['index']) {
+                continue;
+            }
+            if (! $inserted && $existing->priority < $variant->priority) {
+                $replaced[] = $variant;
+                $inserted = true;
+            }
+            $replaced[] = $existing;
+        }
+        if (! $inserted) {
+            $replaced[] = $variant;
+        }
+        $collection->variants = $replaced;
+
+        return $collection;
+    }
+
+    public function contains(string $fingerprint): bool
+    {
+        foreach ($this->variants as $variant) {
+            if ($variant->fingerprint === $fingerprint) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function insert(QueryVariant $variant): bool
     {
         foreach ($this->variants as $index => $existing) {

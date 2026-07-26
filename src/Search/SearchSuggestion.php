@@ -4,6 +4,7 @@ namespace Zarbinco\PersianSearch\Search;
 
 use InvalidArgumentException;
 use JsonSerializable;
+use Zarbinco\PersianSearch\Contextual\ContextualCorrection;
 use Zarbinco\PersianSearch\Support\CanonicalConfigurationName;
 
 final readonly class SearchSuggestion implements JsonSerializable
@@ -14,6 +15,7 @@ final readonly class SearchSuggestion implements JsonSerializable
         public QueryVariantSource $source,
         public string $variantFingerprint,
         public SearchSuggestionEvidence $evidence,
+        public ?ContextualCorrection $contextualCorrection = null,
     ) {
         if ($this->query === '' || ! CanonicalConfigurationName::isValid($this->locale)
             || ! $this->source->isSuggestionRoot() || $this->variantFingerprint === '') {
@@ -30,6 +32,7 @@ final readonly class SearchSuggestion implements JsonSerializable
             'source' => $this->source->value,
             'variant_fingerprint' => $this->variantFingerprint,
             'evidence' => $this->evidence->toArray(),
+            'contextual_correction' => $this->contextualCorrection?->toArray(),
         ];
     }
 
